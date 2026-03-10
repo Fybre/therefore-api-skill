@@ -6,12 +6,14 @@ description: |
   working with categories via the restun API.
 
   MANDATORY TRIGGERS: "Therefore", "Therefore Online", "Therefore API", "restun",
-  "theservice", "thereforeonline.com", Therefore categories, index fields, document queries.
+  "theservice", "thereforeonline.com", Therefore categories, index fields, document queries,
+  Formio eforms, window.Therefore, ThereforeClient (JavaScript).
 
   Contains correct endpoint URLs, auth patterns (Basic Auth + TenantName header),
-  query condition syntax, request/response schemas, and Python examples validated against
-  live servers. The API has non-obvious conventions that cause 500 errors if guessed wrong —
-  always read this skill BEFORE writing Therefore integration code.
+  query condition syntax, request/response schemas, Python examples validated against
+  live servers, and JavaScript/Formio integration patterns. The API has non-obvious
+  conventions that cause 500 errors if guessed wrong — always read this skill BEFORE
+  writing Therefore integration code in any language.
 ---
 
 # Therefore REST API
@@ -407,12 +409,57 @@ Returns `Name`, `CategoryFields[]` (each with `Caption`, `FieldNo`, type info).
 | `ExecuteFullTextQuery` | Full text search | `FullTextQuery` object |
 | `GetKeywordsByFieldNo` | Keyword lookup by field | `FieldNo` |
 
-For complete request/response schemas for all endpoints, read `references/api_endpoints.md`.
-For full Python examples — including both raw REST patterns and the MCP `ThereforeClient`
-wrapper patterns — read `references/python_examples.md`.
-For the complete `ThereforeClient` source implementation, read `references/therefore_client.py`.
-For PowerShell-specific patterns and gotchas (reserved variables, async pagination,
-SecureString handling), read `references/powershell_reference.md`.
+## Extended References
+
+Fetch these on demand for deeper detail:
+
+| Resource | URL |
+|----------|-----|
+| Full endpoint schemas (all operations, request/response) | https://raw.githubusercontent.com/Fybre/therefore-api-skill/main/references/api_endpoints.md |
+| Python examples (raw REST + ThereforeClient wrapper) | https://raw.githubusercontent.com/Fybre/therefore-mcp/main/docs/PYTHON_EXAMPLES.md |
+| Python quick reference (field types, patterns, ~850 tokens) | https://raw.githubusercontent.com/Fybre/therefore-mcp/main/docs/PYTHON_QUICK_REFERENCE.md |
+| ThereforeClient source (Python MCP client) | https://raw.githubusercontent.com/Fybre/therefore-mcp/main/src/therefore_client.py |
+| PowerShell patterns (reserved vars, async pagination, SecureString) | https://raw.githubusercontent.com/Fybre/therefore-api-skill/main/references/powershell_reference.md |
+| JavaScript/Formio reference (browser library, window.Therefore) | https://raw.githubusercontent.com/Fybre/Therefore-Formio-Javascript/main/docs/javascript_formio_reference.md |
+| JavaScript/Formio examples (complete Formio custom action patterns) | https://raw.githubusercontent.com/Fybre/Therefore-Formio-Javascript/main/examples.js |
+
+## JavaScript / Formio Integration
+
+For browser-based Formio eform development, the Therefore Formio JavaScript library
+(`window.Therefore`) is the correct integration layer — not direct fetch calls.
+
+**Key difference from Python/PowerShell:**
+- Auth comes from `getConfigurationFromLocalStorage()` — reads the portal's localStorage
+- `ThereforeClient` handles Bearer token auth automatically from the portal session
+- No credentials need to be embedded in eform scripts
+
+**Quick start:**
+```javascript
+const { ThereforeClient, IndexData, QueryDefinition, Condition,
+        getConfigurationFromLocalStorage } = window.Therefore;
+
+// Build client from portal session (no credentials needed)
+const config = getConfigurationFromLocalStorage();
+const client = new ThereforeClient({ baseUrl: config.apiUrl, token: config.token, tenant: config.tenant });
+
+// Query a referenced table
+const result = await client.queryReferencedTable(
+    'My_Referenced_Table',
+    [{ FieldNoOrName: 'Field', Condition: '*' }]
+);
+
+// Build and save index data
+const indexData = new IndexData()
+    .addString('Invoice_No', data.invoiceNo)
+    .addDate('Invoice_Date', new Date())
+    .addKeyword('Status', 'Approved');
+
+await client.execute('SaveDocumentIndexDataQuick',
+    new (window.Therefore.SaveDocumentIndexDataQuickParams)(docNo, indexData));
+```
+
+For the full API surface, patterns, and Formio-specific integration examples,
+fetch the JavaScript/Formio reference URL above.
 
 ## Common Pitfalls
 

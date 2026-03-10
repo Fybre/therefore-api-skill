@@ -526,3 +526,18 @@ fetch the JavaScript/Formio reference URL above.
     Do NOT call `GetNextSingleQueryRows` before processing this first page — if all results
     fit on one page, `GetNextSingleQueryRows` returns nothing. Pattern:
     process `result["QueryResult"]`, then loop `while result["HasRemainingRows"]`.
+
+## Keeping Knowledge in Sync
+
+This skill references live content from GitHub raw URLs (see Extended References above).
+The therefore-mcp server maintains a parallel local knowledge base (`docs/knowledge-base.json`)
+queried by the `therefore_knowledge` MCP tool.
+
+**When you discover a new API quirk, update a workflow, or correct a pattern, update both:**
+1. The relevant section in this skill's source files (therefore-api-skill repo)
+2. The corresponding entry in `therefore-mcp/docs/knowledge-base.json`
+
+Repos:
+- https://github.com/Fybre/therefore-api-skill
+- https://github.com/Fybre/therefore-mcp
+- https://github.com/Fybre/Therefore-Formio-Javascript

@@ -1,0 +1,481 @@
+---
+name: therefore-api
+description: |
+  Therefore REST API integration. Use whenever writing code that interacts with Therefore
+  document management — querying, creating, updating documents, reading index data, or
+  working with categories via the restun API.
+
+  MANDATORY TRIGGERS: "Therefore", "Therefore Online", "Therefore API", "restun",
+  "theservice", "thereforeonline.com", Therefore categories, index fields, document queries.
+
+  Contains correct endpoint URLs, auth patterns (Basic Auth + TenantName header),
+  query condition syntax, request/response schemas, and Python examples validated against
+  live servers. The API has non-obvious conventions that cause 500 errors if guessed wrong —
+  always read this skill BEFORE writing Therefore integration code.
+---
+
+# Therefore REST API
+
+## Architecture
+
+Therefore exposes a WCF-based REST API under `/restun/`. Every operation is a **POST**
+with a JSON body — there are no GET endpoints.
+
+**URL pattern (Therefore Online / cloud):**
+```
+https://{tenant}.thereforeonline.com/theservice/v0001/restun/{OperationName}
+```
+
+**URL pattern (on-premise):**
+```
+https://{server}/theservice/v0001/restun/{OperationName}
+```
+
+## Authentication
+
+Two authentication methods are supported:
+
+### 1. HTTP Basic Auth (most common)
+HTTP Basic Auth on every request. No session tokens or OAuth.
+
+### 2. Bearer Token Auth
+Use `GetConnectionToken` to get a token, then pass as `Authorization: Bearer {token}`.
+
+**Therefore Online (cloud) additionally requires a `TenantName` header** — without it,
+every request returns a 500 error saying "Tenant name is required." The tenant is the
+subdomain: for `https://acme.thereforeonline.com`, the tenant is `acme`.
+
+```python
+import requests
+from urllib.parse import urlparse
+
+session = requests.Session()
+session.auth = (username, password)
+session.headers.update({'Content-Type': 'application/json; charset=utf-8'})
+
+# Therefore Online: add tenant header
+parsed = urlparse(base_url)
+if 'thereforeonline.com' in (parsed.hostname or ''):
+    tenant = parsed.hostname.split('.')[0]
+    session.headers.update({'TenantName': tenant})
+```
+
+**Content-Type** must be `application/json; charset=utf-8` (include the charset).
+
+**Test connection:** `POST /restun/GetConnectionToken` with empty body `{}`.
+Returns `{"Token": "..."}` on success.
+
+## Query Condition Syntax — Read This First
+
+This is where most mistakes happen. The `Condition` field in queries supports
+multiple formats:
+
+**Exact match — just the raw value, NO operator:**
+```python
+# CORRECT — bare value for exact match:
+{"FieldNoOrName": "Invoice_No", "Condition": "67307PAOP"}
+
+# ALSO CORRECT — full expression with field name and quoted value:
+{"FieldNoOrName": "Order_No", "Condition": "Order_No = '12345'"}
+
+# WRONG — causes "Syntax error near = 67307PAOP":
+{"FieldNoOrName": "Invoice_No", "Condition": "= 67307PAOP"}
+```
+
+**Comparison operators — prefix the value:**
+```python
+{"Condition": ">= 1000"}               # Greater than or equal
+{"Condition": "LIKE Acme*"}             # Wildcard — use * not %
+{"Condition": "LIKE *"}                 # Match all (wildcard only)
+{"Condition": ">= 2024-01-01"}         # Date comparison
+```
+
+**Wildcard is `*`, NOT `%`:**
+Using `%` returns 0 results silently — no error, just empty. Always use `*`.
+```python
+# CORRECT:
+{"FieldNoOrName": "Supplier_Name", "Condition": "LIKE Acme*"}
+
+# WRONG — silently returns 0 results:
+{"FieldNoOrName": "Supplier_Name", "Condition": "LIKE Acme%"}
+```
+
+**IS NULL / IS NOT NULL:**
+```python
+{"FieldNoOrName": "Notes", "Condition": "IS NULL"}
+{"FieldNoOrName": "Notes", "Condition": "IS NOT NULL"}
+```
+
+**TimeZone in date conditions:**
+```python
+{
+    "FieldNoOrName": "Invoice_Date",
+    "Condition": ">= 2024-01-01",
+    "TimeZone": "UTC"
+}
+```
+
+## ExecuteSingleQuery
+
+The synchronous search endpoint. Good for simple queries.
+
+**POST** `/restun/ExecuteSingleQuery`
+
+```json
+{
+  "Query": {
+    "CategoryNo": 8,
+    "Conditions": [
+      {"FieldNoOrName": "Invoice_No", "Condition": "67307PAOP"}
+    ],
+    "SelectedFieldsNoOrNames": ["Invoice_No", "Supplier_Name"],
+    "MaxRows": 0,
+    "RowBlockSize": 200,
+    "Mode": 0
+  }
+}
+```
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `CategoryNo` | int | Required. Category to search. |
+| `Conditions` | array | Each has `FieldNoOrName` (string) and `Condition` (string). |
+| `SelectedFieldsNoOrNames` | array | Optional. Fields to return. Omit = all fields. |
+| `MaxRows` | int | 0 = unlimited. |
+| `RowBlockSize` | int | Page size. |
+| `Mode` | int | 0 = normal. |
+| `OrderByFieldsNoOrNames` | array | Optional. Fields to sort by. |
+
+**Response:**
+```json
+{
+  "QueryResult": {
+    "CategoryNo": 8,
+    "QueryID": 12345,
+    "Columns": [
+      {"FieldNo": 101, "Caption": "Invoice_No", "ColName": "Invoice_No", "FieldType": 0}
+    ],
+    "ResultRows": [
+      {"DocNo": 265461, "VersionNo": 1, "IndexValues": ["67307PAOP"], "Size": 97400}
+    ]
+  },
+  "HasRemainingRows": false
+}
+```
+
+## ExecuteAsyncSingleQuery
+
+The **preferred** search endpoint for production use. Works identically to
+`ExecuteSingleQuery` but processes asynchronously on the server.
+
+**POST** `/restun/ExecuteAsyncSingleQuery`
+
+Request body is identical to `ExecuteSingleQuery`. Key response difference:
+
+```json
+{
+  "QueryId": 67890,
+  "QueryResult": {
+    "Columns": [...],
+    "ResultRows": [...]
+  },
+  "HasRemainingRows": true
+}
+```
+
+**IMPORTANT:** The response includes BOTH the `QueryId` AND the **first page of results**
+inside `QueryResult`. Process this first page immediately — do not skip to
+`GetNextSingleQueryRows` first, or you will miss all data when results fit on one page
+(which is the common case). See pitfall #18.
+
+Note: Returns `QueryId` (lowercase 'd'), not `QueryID` (uppercase 'D') as in
+the synchronous variant. Use `GetNextSingleQueryRows` with this ID to fetch
+additional pages, and `ReleaseSingleQuery` to release.
+
+**Workflow:**
+```python
+# 1. Start async query — response contains QueryId AND first page of results
+result = client.post("ExecuteAsyncSingleQuery", {"Query": {...}})
+query_id = result.get("QueryId")  # Note: lowercase 'd'
+
+try:
+    # 2. Process FIRST PAGE from the initial response (critical — do not skip this)
+    rows = result.get("QueryResult", {}).get("ResultRows", [])
+    # process rows...
+
+    # 3. Fetch further pages only while more remain
+    while result.get("HasRemainingRows"):
+        result = client.post("GetNextSingleQueryRows", {
+            "QueryID": query_id, "RowBlockSize": 200
+        })
+        rows = result.get("QueryResult", {}).get("ResultRows", [])
+        # process rows...
+finally:
+    # 4. ALWAYS release
+    client.post("ReleaseSingleQuery", {"QueryID": query_id})
+```
+
+### Parsing Results — Positional Mapping
+
+`Columns` and `IndexValues` are parallel arrays. Column 0 → IndexValues 0, etc.
+Never assume field ordering — always build the column map:
+
+```python
+columns = query_result.get("Columns", [])
+rows = query_result.get("ResultRows", [])
+
+col_map = {i: col.get("ColName") or col.get("Caption")
+           for i, col in enumerate(columns)}
+
+for row in rows:
+    doc_no = row["DocNo"]
+    values = row.get("IndexValues", [])
+    fields = {col_map[i]: val for i, val in enumerate(values) if i in col_map}
+```
+
+### Pagination
+
+If `HasRemainingRows` is true:
+```python
+next_result = post(session, "GetNextSingleQueryRows", {
+    "QueryID": query_id, "RowBlockSize": 200
+})
+```
+
+Always release when done:
+```python
+post(session, "ReleaseSingleQuery", {"QueryID": query_id})
+```
+
+## GetDocumentIndexData
+
+Full typed field data for a single document. More detailed than query results.
+
+**POST** `/restun/GetDocumentIndexData`
+
+```json
+{"DocNo": 265461}
+```
+
+Note: The parameter is `DocNo` (int), not `DocId` or `DocumentId`.
+
+**Response — `IndexDataItems` are typed objects:**
+
+Each item has exactly ONE populated key from:
+
+| Key | Data Type |
+|-----|-----------|
+| `StringIndexData` | String fields (most common) |
+| `IntIndexData` | Integer fields |
+| `MoneyIndexData` | Currency fields |
+| `DateIndexData` | Date fields |
+| `DateTimeIndexData` | DateTime fields |
+| `LogicalIndexData` | Boolean fields |
+| `SingleKeywordData` | Dropdown (has `KeywordNo` + `DataValue`) |
+| `MultipleKeywordData` | Multi-select keywords |
+| `TableIndexData` | Table rows (nested — see below) |
+
+**Extract a field:**
+```python
+def get_field_value(index_data, field_name):
+    items = index_data.get("IndexData", {}).get("IndexDataItems", [])
+    for item in items:
+        for type_key, data in item.items():
+            if isinstance(data, dict) and data.get("FieldName") == field_name:
+                return str(data.get("DataValue", ""))
+    return None
+```
+
+### TableData Structure
+
+Table fields in `GetDocumentIndexData` return structured data:
+```json
+{
+  "TableIndexData": {
+    "FieldNo": 200,
+    "FieldName": "LineItems",
+    "Rows": [
+      {
+        "Values": [
+          {"StringValue": "Item A"},
+          {"IntValue": 5},
+          {"MoneyValue": 29.99}
+        ]
+      }
+    ]
+  }
+}
+```
+
+**Important:** In query results (`IndexValues`), table data is returned as
+concatenated/delimited strings. Use `GetDocumentIndexData` when you need
+structured table data.
+
+## Document Creation Workflow
+
+Creating documents is a multi-step process:
+
+### Step 1: GetCategoryInfo
+Get the category metadata and field definitions.
+
+### Step 2: PreprocessIndexData
+Validate and preprocess index data before saving. Handles default values,
+calculated fields, etc.
+
+**POST** `/restun/PreprocessIndexData`
+```json
+{
+  "CategoryNo": 8,
+  "IndexData": {
+    "IndexDataItems": [...]
+  }
+}
+```
+
+**Note:** Items must be wrapped in `IndexData` — `{"CategoryNo": N, "IndexData": {"IndexDataItems": [...]}}`.
+Using `{"CategoryNo": N, "IndexDataItems": [...]}` (without the wrapper) will cause a 500 error.
+See pitfall #13.
+
+### Step 3: EvaluateConditionalProperties
+Check conditional field rules (visibility, mandatory status, etc.).
+
+**POST** `/restun/EvaluateConditionalProperties`
+```json
+{
+  "CategoryNo": 8,
+  "IndexDataItems": [...]
+}
+```
+
+### Step 4: CreateDocument
+Create the document with validated index data and optional file streams.
+
+**POST** `/restun/CreateDocument`
+```json
+{
+  "TheDocument": {
+    "IndexDataItems": [...],
+    "CategoryNo": 8,
+    "Streams": [
+      {
+        "StreamNo": 0,
+        "FileName": "invoice.pdf",
+        "FileData": "<base64-encoded-content>"
+      }
+    ]
+  }
+}
+```
+
+## GetCategoryInfo
+
+Category metadata and field definitions. Useful for validating field names.
+
+**POST** `/restun/GetCategoryInfo`
+
+```json
+{"CategoryNo": 8, "IsAccessMaskNeeded": false, "IsSearchFieldOrderNeeded": false}
+```
+
+Returns `Name`, `CategoryFields[]` (each with `Caption`, `FieldNo`, type info).
+
+## Endpoint Reference
+
+| Endpoint | Purpose | Key Params |
+|----------|---------|------------|
+| `GetConnectionToken` | Test auth / get bearer token | empty `{}` |
+| `GetCategoriesTree` | List categories | empty `{}` |
+| `GetCategoryInfo` | Category metadata | `CategoryNo` |
+| `ExecuteSingleQuery` | Search (synchronous) | `Query` object |
+| `ExecuteAsyncSingleQuery` | Search (async, preferred) | `Query` object |
+| `GetNextSingleQueryRows` | Paginate | `QueryID`, `RowBlockSize` |
+| `ReleaseSingleQuery` | Free query | `QueryID` |
+| `GetDocumentIndexData` | Full doc fields | `DocNo` |
+| `GetDocument` | Doc metadata + optional index data | `DocNo`, `IsIndexDataValuesNeeded` |
+| `PreprocessIndexData` | Validate/default index data | `CategoryNo`, `IndexData.IndexDataItems` |
+| `EvaluateConditionalProperties` | Check field rules | `CategoryNo`, `IndexDataItems` |
+| `CreateDocument` | Create document | See `references/api_endpoints.md` |
+| `UpdateDocument2` | Update index data | `DocNo`, `IndexData` with `LastChangeTime` |
+| `SaveDocumentIndexData` | Save index data | `DocNo`, `IndexData` with `LastChangeTime` |
+| `UpdateDocument` | Update index + streams | `DocNo`, `IndexData` with `LastChangeTime` |
+| `AddStreamsToDocument` | Add streams to doc | `DocNo`, `StreamsToUpload` |
+| `GetConvertedDocStreams` | Get converted streams | `DocNo`, `ConversionOptions` |
+| `GetDocumentStream` | Download file content as base64 | `DocNo`, `StreamNo` |
+| `DeleteDocument` | Delete document | `DocNo` |
+
+| `ExecuteAsyncMultiQuery` | Query multiple categories | `Queries` array |
+| `ExecuteFullTextQuery` | Full text search | `FullTextQuery` object |
+| `GetKeywordsByFieldNo` | Keyword lookup by field | `FieldNo` |
+
+For complete request/response schemas for all endpoints, read `references/api_endpoints.md`.
+For full Python examples — including both raw REST patterns and the MCP `ThereforeClient`
+wrapper patterns — read `references/python_examples.md`.
+For the complete `ThereforeClient` source implementation, read `references/therefore_client.py`.
+For PowerShell-specific patterns and gotchas (reserved variables, async pagination,
+SecureString handling), read `references/powershell_reference.md`.
+
+## Common Pitfalls
+
+1. **Missing TenantName header** → 500: "Tenant name is required." Always add
+   `TenantName` header for Therefore Online.
+
+2. **Using `= value` in Condition** → 500: "Syntax error near = value." Use the
+   raw value for exact match — no `=` prefix.
+
+3. **Everything is POST** → No GET endpoints exist. Using GET gives 405/404.
+
+4. **Parameter is `DocNo` not `DocId`** → Consistent across all endpoints.
+
+5. **Keyword fields need KeywordNos for writes** → Creating/updating keyword fields
+   requires the numeric `KeywordNo`, not the display string. Resolve with
+   `GetKeywordsByFieldNo` (pass `FieldNo` + `CategoryNo`).
+
+6. **Table data in query results is concatenated** → `IndexValues` for table fields
+   are delimited strings. Use `GetDocumentIndexData` for structured table data.
+
+7. **Query results are positional** → `IndexValues[0]` maps to `Columns[0]`. Always
+   build the column map from the `Columns` array.
+
+8. **Content-Type needs charset** → Use `application/json; charset=utf-8`, not just
+   `application/json`.
+
+9. **AsyncQuery returns `QueryId` (lowercase d)** → `ExecuteAsyncSingleQuery` returns
+   `QueryId`, but `GetNextSingleQueryRows` and `ReleaseSingleQuery` expect `QueryID`
+   (uppercase D). Map accordingly.
+
+10. **Always release queries in a finally block** → Server resources leak if queries
+    aren't released. Use try/finally pattern.
+
+11. **Document creation requires preprocessing** → Call `PreprocessIndexData` and
+    `EvaluateConditionalProperties` before `CreateDocument` to handle defaults,
+    calculated fields, and conditional rules.
+
+12. **Updating index data does NOT use `UpdateDocumentIndexData`** → The actual
+    update endpoints are `UpdateDocument2`, `SaveDocumentIndexData`, or `UpdateDocument`.
+    All three require `LastChangeTime` or `LastChangeTimeISO8601` from the current document
+    (fetch via `GetDocumentIndexData` first). Without it, the request fails.
+
+13. **`PreprocessIndexData` wraps items in `IndexData`** → The request body is:
+    `{"CategoryNo": N, "IndexData": {"IndexDataItems": [...]}}` — NOT just
+    `{"CategoryNo": N, "IndexDataItems": [...]}`.
+
+14. **Streams use `FileDataBase64JSON`, not `FileData`** → When attaching files,
+    the stream field is `FileDataBase64JSON` (base64 string) plus `NewStreamInsertMode: 0`.
+
+15. **`GetDictionaryInfo` → use `GetKeywordsByFieldNo` instead** → The correct endpoint
+    for resolving keyword values by field is `GetKeywordsByFieldNo` (pass `FieldNo`).
+
+16. **The MCP client uses `urllib`, not `requests`** → `therefore_client.py` uses stdlib
+    `urllib.request` only. The `ThereforeConfig` dataclass controls auth via `auth_method`
+    (`'basic'` or `'bearer'`), `tenant_name` header, and timeout settings.
+    See `references/therefore_client.py` for the full implementation.
+
+17. **Wildcard is `*` not `%`** → Using `%` in `LIKE` conditions returns 0 results
+    silently — no error. The correct wildcard character is `*`. E.g. `"LIKE Acme*"`,
+    not `"LIKE Acme%"`. This applies to all query endpoints.
+
+18. **`ExecuteAsyncSingleQuery` returns the first page in its own response** → The
+    `QueryResult` inside the initial response already contains the first page of rows.
+    Do NOT call `GetNextSingleQueryRows` before processing this first page — if all results
+    fit on one page, `GetNextSingleQueryRows` returns nothing. Pattern:
+    process `result["QueryResult"]`, then loop `while result["HasRemainingRows"]`.

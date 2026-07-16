@@ -1013,6 +1013,24 @@ Get the case definition's metadata: linked categories and index fields.
 **Note:** the request parameter is `CaseDefinitionNo`, not `CaseDefNo` (despite the
 response field being named `CaseDefNo`).
 
+### Querying documents by case — `CaseDefinitionNo` in a Query object does NOT filter
+
+`ExecuteSingleQuery`/`ExecuteAsyncSingleQuery`/`ExecuteAsyncMultiQuery`'s `Query` object
+accepts a `CaseDefinitionNo` field, which looks like it should scope a search to a case's
+documents the way `CategoryNo` scopes it to a category. Verified against a live tenant
+2026-07-16 that it does not work that way:
+
+- `CaseDefinitionNo` **without** `CategoryNo` 500s — the server tries to load it as a
+  category ID and fails: `"Failed to load information from database: Category - ID=11"`.
+- `CaseDefinitionNo` **together with** `CategoryNo` is silently ignored: the response's
+  own `QueryResult.CaseDefinitionNo` comes back `0`, and the result set is identical to
+  querying `CategoryNo` alone.
+
+**There is no query-time filter for "documents belonging to this case."** To get case
+documents, use `GetCaseDocuments` (returns `DocumentNos`, see below) — a separate,
+non-query call — then fetch each document individually, or fall back to filtering by
+`CategoryNo` (from `GetCaseDefinition`'s `Categories` list) if a query is what you need.
+
 ### CreateCase
 
 ```json

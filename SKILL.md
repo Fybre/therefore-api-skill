@@ -612,6 +612,10 @@ restart:
   `get_case_documents`, and `get_case_history` are exposed; `LinkCaseToDocument`,
   `SaveCaseIndexData`/`SaveCaseIndexDataQuick`, `CloseCase`/`ReopenCase`/`DeleteCase`,
   and `LinkCases`/`UnlinkCases` are not wired up yet.
+- `therefore_query`'s `search`/`search_async` operations do **not** support filtering by
+  case — see pitfall #28. To answer "what categories/documents belong to this case", use
+  `therefore_workflow`'s `get_case_definition` (categories) and `get_case_documents`
+  (document numbers), not a `Query` with `CaseDefinitionNo`.
 
 ## Extended References
 
@@ -780,6 +784,14 @@ fetch the JavaScript/Formio reference URL above.
     `{"CaseNo": N, "DocNo": N}` returned `200 {}` but the document did not subsequently
     appear in `GetCaseDocuments`. Verify the link took effect before relying on it — the
     minimal payload may be missing a required field (e.g. `CategoryNo`).
+
+28. **`Query.CaseDefinitionNo` does not filter documents by case** → It looks like a
+    case-scoped analog to `CategoryNo`, but it isn't one. Without `CategoryNo` it 500s
+    ("Failed to load information from database: Category - ID=..."); with `CategoryNo`
+    it's silently dropped (`QueryResult.CaseDefinitionNo` comes back `0`, results are
+    identical to a plain `CategoryNo` query). There is no query-time case filter — use
+    `GetCaseDocuments` to list a case's document numbers instead, or `CategoryNo` from
+    `GetCaseDefinition`'s `Categories` list if you need to actually query.
 
 ## Keeping Knowledge in Sync
 

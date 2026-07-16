@@ -604,10 +604,10 @@ restart:
 
 ### Known gaps in the MCP tool surface (as of 2026-07-16)
 
-- `therefore_documents`'s `copy` operation is **not available** — the underlying
+- `therefore_documents` has **no document-copy operation** — the underlying
   `CopyDocument` endpoint doesn't exist on the live server (confirmed via WSDL) and no
-  replacement was found. It raises immediately with a clear error rather than a
-  confusing 405.
+  replacement was found, so the operation was removed entirely rather than left in as a
+  guaranteed-to-fail stub.
 - Cases support is partial: `get_case_definition`, `create_case`, `get_case`,
   `get_case_documents`, and `get_case_history` are exposed; `LinkCaseToDocument`,
   `SaveCaseIndexData`/`SaveCaseIndexDataQuick`, `CloseCase`/`ReopenCase`/`DeleteCase`,

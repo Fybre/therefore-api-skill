@@ -181,7 +181,7 @@ Search documents in a category with field conditions (synchronous).
 | `Conditions` | array | Field conditions (AND logic) |
 | `SelectedFieldsNoOrNames` | array | Fields to return (omit = all) |
 | `OrderByFieldsNoOrNames` | array | Sort fields |
-| `MaxRows` | int | 0 = unlimited |
+| `MaxRows` | int | 0 defaults to 500. Use `2147483647` (int max) for all documents. |
 | `RowBlockSize` | int | Page size |
 | `Mode` | int | 0 = normal |
 
@@ -565,14 +565,15 @@ Download the binary file content for a document stream (e.g. the attached PDF/Wo
   "DocNo": 265461,
   "StreamNo": 0,
   "FileName": "invoice.pdf",
-  "FileSize": 97400,
-  "FileDataBase64JSON": "<base64-encoded-content>"
+  "FileData": [<byte array>]
 }
 ```
 
 **Notes:**
 - `StreamNo`: 0 is the primary/main stream. Additional attachments use 1, 2, etc.
-- Decode content: `base64.b64decode(result["FileDataBase64JSON"])`.
+- `FileData` is a **raw byte array** in JSON responses (not base64). Cast directly to bytes:
+  - Python: `bytes(result["FileData"])`
+  - PowerShell: `[byte[]]$response.FileData`
 - To list available streams for a document, call `GetDocument` — streams are listed in the response metadata.
 
 ---

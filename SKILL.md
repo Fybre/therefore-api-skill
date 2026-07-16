@@ -143,7 +143,7 @@ The synchronous search endpoint. Good for simple queries.
 | `CategoryNo` | int | Required. Category to search. |
 | `Conditions` | array | Each has `FieldNoOrName` (string) and `Condition` (string). |
 | `SelectedFieldsNoOrNames` | array | Optional. Fields to return. Omit = all fields. |
-| `MaxRows` | int | 0 = unlimited. |
+| `MaxRows` | int | 0 defaults to 500. Use `2147483647` (int max) for all documents. |
 | `RowBlockSize` | int | Page size. |
 | `Mode` | int | 0 = normal. |
 | `OrderByFieldsNoOrNames` | array | Optional. Fields to sort by. |
@@ -408,6 +408,120 @@ Returns `Name`, `CategoryFields[]` (each with `Caption`, `FieldNo`, type info).
 | `ExecuteAsyncMultiQuery` | Query multiple categories | `Queries` array |
 | `ExecuteFullTextQuery` | Full text search | `FullTextQuery` object |
 | `GetKeywordsByFieldNo` | Keyword lookup by field | `FieldNo` |
+| `ExecuteUsersQuery` | List all users | `{"Flags": 4}` — see pitfall #19 |
+| `GetObjects` | List users + groups combined | `{"Flags": 0, "Type": 11}` |
+| `GetUsersFromGroup` | Members of a group | `{"GroupName": "..."}` — name only, not ID |
+
+## User & Group Management
+
+The API exposes full user and group membership data — useful for reporting, auditing, and
+supplementing XML exports that may not include security data.
+
+### Get All Users
+
+**POST** `/restun/ExecuteUsersQuery`
+
+```json
+{"Flags": 4}
+```
+
+`Flags=4` returns all regular named users. `Flags=0–3` silently return an empty list.
+`Flags=63` returns internal system accounts only.
+
+Each user in the response contains: `UserId`, `UserName`, `DisplayName`, `SMTP`,
+`Disabled`, `UserType`, `GUID`.
+
+> **Note:** AD/LDAP integrated accounts return `UserId: 0` — use `UserName` as the stable
+> identifier, not the numeric ID.
+
+### Get All Groups
+
+There is no `GetGroups` endpoint (returns 405). Use `GetObjects` instead:
+
+**POST** `/restun/GetObjects`
+
+```json
+{"Flags": 0, "Type": 11}
+```
+
+Returns `{"ItemList": [...]}` containing both users and groups. Filter by `Data` field:
+
+| Data | Meaning |
+|------|---------|
+| `1` | User account |
+| `2` | System group |
+| `3` | Special system principal (e.g. `$TheWFSystem`) |
+
+```python
+items = post("GetObjects", {"Flags": 0, "Type": 11}).get("ItemList", [])
+groups = [i for i in items if i["Data"] == 2]
+```
+
+### Get Group Members
+
+**POST** `/restun/GetUsersFromGroup`
+
+```json
+{"GroupName": "THEREFORE_ADMINISTRATORS"}
+```
+
+- Resolves by **name only** — passing a numeric `GroupNo` is silently ignored.
+- Returns `{"Users": []}` (200 OK) for groups with no members.
+- Returns a 500 WSError for unknown group names.
+
+### Full Workflow
+
+```python
+import requests
+
+BASE_URL = "https://{tenant}.thereforeonline.com/theservice/v0001/restun"
+session = requests.Session()
+session.auth = ("username", "password")
+session.headers.update({
+    "Content-Type": "application/json; charset=utf-8",
+    "TenantName": "{tenant}"
+})
+
+def post(endpoint, body={}):
+    return session.post(f"{BASE_URL}/{endpoint}", json=body).json()
+
+# 1. All users
+users = post("ExecuteUsersQuery", {"Flags": 4}).get("Users", [])
+user_by_name = {u["UserName"]: u for u in users}
+
+# 2. All groups
+items = post("GetObjects", {"Flags": 0, "Type": 11}).get("ItemList", [])
+all_groups = [i for i in items if i["Data"] == 2]
+
+# 3. Members per group + reverse map (username -> group names)
+group_members = {}
+user_groups   = {}
+for g in all_groups:
+    gname = g["Name"]
+    members = post("GetUsersFromGroup", {"GroupName": gname}).get("Users", [])
+    group_members[gname] = members
+    for u in members:
+        user_groups.setdefault(u["UserName"], []).append(gname)
+```
+
+### Discovering Endpoints via WSDL
+
+The full WSDL listing ~268 operations is available at the **service** path (not the restun path):
+
+```
+GET https://{tenant}.thereforeonline.com/theservice/v0001?wsdl
+```
+
+> `GET .../restun?wsdl` returns **405**. Use the path above.
+
+```python
+import re, requests
+r = requests.get(
+    "https://{tenant}.thereforeonline.com/theservice/v0001?wsdl",
+    auth=("username", "password")
+)
+ops = sorted(set(re.findall(r'wsdl:operation name="([^"]+)"', r.text)))
+```
 
 ## Extended References
 
@@ -506,8 +620,9 @@ fetch the JavaScript/Formio reference URL above.
     `{"CategoryNo": N, "IndexData": {"IndexDataItems": [...]}}` — NOT just
     `{"CategoryNo": N, "IndexDataItems": [...]}`.
 
-14. **Streams use `FileDataBase64JSON`, not `FileData`** → When attaching files,
-    the stream field is `FileDataBase64JSON` (base64 string) plus `NewStreamInsertMode: 0`.
+14. **`GetDocumentStream` returns `FileData` as a raw byte array, not base64** → In JSON
+    responses, `FileData` is a byte array. Use `bytes(result["FileData"])` in Python or
+    `[byte[]]$response.FileData` in PowerShell. Do NOT call `base64.b64decode()` on it.
 
 15. **`GetDictionaryInfo` → use `GetKeywordsByFieldNo` instead** → The correct endpoint
     for resolving keyword values by field is `GetKeywordsByFieldNo` (pass `FieldNo`).
@@ -526,6 +641,18 @@ fetch the JavaScript/Formio reference URL above.
     Do NOT call `GetNextSingleQueryRows` before processing this first page — if all results
     fit on one page, `GetNextSingleQueryRows` returns nothing. Pattern:
     process `result["QueryResult"]`, then loop `while result["HasRemainingRows"]`.
+
+19. **`ExecuteUsersQuery` requires `Flags=4` to return users** → `Flags=0`, `1`, `2`,
+    and `3` all silently return an empty list. Use `Flags=4` for all regular named users.
+    `Flags=63` returns only internal system accounts.
+
+20. **No `GetGroups` endpoint** → A `GetGroups` call returns 405. Use
+    `GetObjects {"Flags":0,"Type":11}` instead and filter the `ItemList` by `Data==2`
+    to isolate groups (`Data==1` = users, `Data==3` = system principals).
+
+21. **`GetUsersFromGroup` uses group name, not ID** → The `GroupName` string parameter
+    is required. Passing a numeric `GroupNo` is silently ignored and returns no members.
+    An unknown group name returns a 500 WSError.
 
 ## Keeping Knowledge in Sync
 

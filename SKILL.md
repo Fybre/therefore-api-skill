@@ -542,6 +542,77 @@ r = requests.get(
 ops = sorted(set(re.findall(r'wsdl:operation name="([^"]+)"', r.text)))
 ```
 
+## Using Therefore via the MCP Server (therefore-mcp)
+
+Everything above describes calling the REST API directly. If an MCP client (e.g. Claude
+Code with the `therefore-mcp` server connected) is available, prefer its grouped tools
+over hand-rolled REST calls — they wrap auth, tenant headers, pagination, and the
+pitfalls above, and are kept in sync with this skill (see "Keeping Knowledge in Sync"
+below).
+
+**Tool surface:** one router tool plus grouped operation tools, each taking an
+`operation` enum parameter instead of exposing one MCP tool per API endpoint:
+
+| Tool | Covers |
+|------|--------|
+| `ask_therefore_expert` | Natural-language router — describe what you want, get back the exact tool/operation/parameters to call. Start here. |
+| `therefore_connect` | Register a tenant/login at runtime (see below). |
+| `therefore_system` | Customer ID, connected user, version, ADFS/SSO token exchange, objects/statistics, log files. |
+| `therefore_categories` | Category tree, category info, field listing, config generation. |
+| `therefore_documents` | Get/create/update/delete, history, checkout/checkin, streams, comments. |
+| `therefore_query` | Single/multi/full-text search, pagination, release. |
+| `therefore_workflow` | Tasks, task completion, claim/disclaim/delegate, Cases. |
+| `therefore_users` | Search, create, get details, group membership. |
+| `therefore_keywords` | Get by field/dictionary, add. |
+| `therefore_knowledge` | Search the server's local knowledge base. |
+
+Most calls need a `tenant` argument selecting which configured tenant/login to use.
+If omitted, the server infers it (single configured tenant, or the last tenant used in
+the session).
+
+### therefore_connect — registering a tenant/login without restarting the server
+
+By default the server's tenant list is fixed at process startup from server-side env
+vars (`THEREFORE_TENANTS` + per-tenant `THEREFORE_<NAME>_BASE_URL`/`_USERNAME`/`_PASSWORD`).
+`therefore_connect` adds a tenant/login at **runtime** instead — no config file edit, no
+restart:
+
+```json
+{"tenant_name": "acme", "username": "jdoe", "password": "..."}
+```
+
+- `tenant_name` is the Therefore Online subdomain shorthand (for `acme.thereforeonline.com`)
+  — the base URL and the `TenantName` header (see pitfall #1 above) are derived from it
+  automatically. For on-prem or non-standard hosts, pass `base_url` explicitly instead
+  (and still pass `tenant_name` if the host is a Therefore Online tenant, per the same
+  pitfall).
+- The call **verifies the login** (`GetConnectionToken`) before registering anything —
+  bad credentials fail immediately and nothing gets added to the tenant list.
+- On success it returns a `tenant_key` (defaults to a normalized `tenant_name`/`base_url`,
+  or set one explicitly via `tenant_key`). Pass that as `"tenant"` on every subsequent
+  tool call — or omit `tenant` entirely, since the newly connected tenant becomes the
+  session default.
+- **In-memory only** — not persisted to disk. A server restart forgets it; that's by
+  design, for ad hoc/flexible use rather than permanent config.
+- **Scoped per caller** when the server runs in multi-client HTTP mode: a tenant you
+  register is only usable by the API key that registered it, not shared with other
+  connected clients.
+- `ask_therefore_expert` understands connect-flavored questions ("how do I connect to a
+  new tenant", "add a different login") and routes straight to `therefore_connect` with
+  the parameters spelled out — this works even on a freshly started server with zero
+  tenants configured.
+
+### Known gaps in the MCP tool surface (as of 2026-07-16)
+
+- `therefore_documents`'s `copy` operation is **not available** — the underlying
+  `CopyDocument` endpoint doesn't exist on the live server (confirmed via WSDL) and no
+  replacement was found. It raises immediately with a clear error rather than a
+  confusing 405.
+- Cases support is partial: `get_case_definition`, `create_case`, `get_case`,
+  `get_case_documents`, and `get_case_history` are exposed; `LinkCaseToDocument`,
+  `SaveCaseIndexData`/`SaveCaseIndexDataQuick`, `CloseCase`/`ReopenCase`/`DeleteCase`,
+  and `LinkCases`/`UnlinkCases` are not wired up yet.
+
 ## Extended References
 
 Fetch these on demand for deeper detail:
@@ -552,6 +623,7 @@ Fetch these on demand for deeper detail:
 | Python examples (raw REST + ThereforeClient wrapper) | https://raw.githubusercontent.com/Fybre/therefore-mcp/main/docs/PYTHON_EXAMPLES.md |
 | Python quick reference (field types, patterns, ~850 tokens) | https://raw.githubusercontent.com/Fybre/therefore-mcp/main/docs/PYTHON_QUICK_REFERENCE.md |
 | ThereforeClient source (Python MCP client) | https://raw.githubusercontent.com/Fybre/therefore-mcp/main/src/therefore_client.py |
+| MCP server source (tool definitions, dispatch, ask_therefore_expert router, therefore_connect) | https://raw.githubusercontent.com/Fybre/therefore-mcp/main/src/mcp_server.py |
 | PowerShell patterns (reserved vars, async pagination, SecureString) | https://raw.githubusercontent.com/Fybre/therefore-api-skill/main/references/powershell_reference.md |
 | JavaScript/Formio reference (browser library, window.Therefore) | https://raw.githubusercontent.com/Fybre/Therefore-Formio-Javascript/main/docs/javascript_formio_reference.md |
 | JavaScript/Formio examples (complete Formio custom action patterns) | https://raw.githubusercontent.com/Fybre/Therefore-Formio-Javascript/main/examples.js |

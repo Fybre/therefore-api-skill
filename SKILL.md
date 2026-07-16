@@ -405,7 +405,7 @@ Returns `Name`, `CategoryFields[]` (each with `Caption`, `FieldNo`, type info).
 | `GetDocumentStream` | Download file content as base64 | `DocNo`, `StreamNo` |
 | `DeleteDocument` | Delete document | `DocNo` |
 
-| `ExecuteAsyncMultiQuery` | Query multiple categories | `Queries` array |
+| `ExecuteAsyncMultiQuery` | Query multiple categories | `Queries` array — see pitfall #25 (pagination unreliable) |
 | `ExecuteFullTextQuery` | Full text search | `FullTextQuery` object |
 | `GetKeywordsByFieldNo` | Keyword lookup by field | `FieldNo` |
 | `ExecuteUsersQuery` | List all users | `{"Flags": 4}` — see pitfall #19 |
@@ -417,6 +417,12 @@ Returns `Name`, `CategoryFields[]` (each with `Caption`, `FieldNo`, type info).
 | `UndoCheckOutDocument` | Release a checkout w/o saving | `DocNo` |
 | `CheckInDocument` | Save & release a checkout | `DocNo` + new content — see pitfall #24 |
 | `LoadComments` | List comments on a doc | `{"ObjNo": N, "ObjType": 2, "MaxCount": N}` |
+| `AddComment` | Add a comment | `{"ObjNo": N, "ObjType": 2, "CommentText": "..."}` |
+| `EditComment` | Edit a comment | + `"ID"` (GUID from `LoadComments`) — no `DeleteComment` exists |
+| `GetCaseDefinition` | Case definition metadata | `{"CaseDefinitionNo": N}` |
+| `CreateCase` | Create a case | `{"CaseDefNo": N}` |
+| `GetCase` / `GetCaseDocuments` / `GetCaseHistory` | Read a case | `{"CaseNo": N}` |
+| `DeleteCase` | Delete a case | `{"CaseNo": N}` |
 
 ## User & Group Management
 
@@ -685,6 +691,23 @@ fetch the JavaScript/Formio reference URL above.
     `{"DocNo": ...}` and no changes fails with "The document file is not open." If you
     only need to release a checkout without saving changes, use `UndoCheckOutDocument`
     instead.
+
+25. **`ExecuteAsyncMultiQuery` does not reliably paginate** → Unlike
+    `ExecuteAsyncSingleQuery`, testing showed `RowBlockSize` had no effect — all rows for
+    each category came back inline in the first response with `HasRemainingRows: false`,
+    even when `RowBlockSize` was set well below the actual row count. `GetNextMultiQueryRows`
+    exists but its trigger condition wasn't reproduced. For large result sets, use
+    `ExecuteAsyncSingleQuery` per category instead — its pagination is confirmed reliable.
+
+26. **`GetCaseDefinition` takes `CaseDefinitionNo`, not `CaseDefNo`** → Despite the response
+    field being named `CaseDefNo`, the request parameter is the longer `CaseDefinitionNo`.
+    `CreateCase`, by contrast, does use `CaseDefNo`. Case definitions are discoverable via
+    `GetCategoriesTree` nodes with `ItemType: 3` (pitfall #22).
+
+27. **`LinkCaseToDocument` returns success but may not actually link** → In testing,
+    `{"CaseNo": N, "DocNo": N}` returned `200 {}` but the document did not subsequently
+    appear in `GetCaseDocuments`. Verify the link took effect before relying on it — the
+    minimal payload may be missing a required field (e.g. `CategoryNo`).
 
 ## Keeping Knowledge in Sync
 

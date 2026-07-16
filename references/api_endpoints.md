@@ -13,6 +13,7 @@ Content-Type: `application/json; charset=utf-8`
 - [Users](#users)
 - [Keywords](#keywords)
 - [Workflows](#workflows)
+- [Cases](#cases)
 - [Error Handling](#error-handling)
 
 ---
@@ -347,9 +348,19 @@ Query multiple categories simultaneously in a single API call.
 ```
 
 **Notes:**
-- Results are returned inline (no `QueryId`/`GetNextSingleQueryRows` pattern).
 - `QueryResults[i]` corresponds to `Queries[i]` by position.
-- For very large result sets, prefer separate `ExecuteAsyncSingleQuery` calls per category.
+- A `QueryId` IS returned (singular, covering the whole multi-query batch), and
+  `GetNextMultiQueryRows`/`ReleaseMultiQuery` exist as the pagination/cleanup endpoints —
+  but in live testing 2026-07-16, `HasRemainingRows` came back `false` and all rows for
+  each category were returned inline in the initial response **regardless of
+  `RowBlockSize`** (a `RowBlockSize: 2` request against a 7-row category still returned
+  all 7 rows with `HasRemainingRows: false`). `ExecuteAsyncMultiQuery` does not appear to
+  paginate the way `ExecuteAsyncSingleQuery` does — treat `RowBlockSize` here as advisory
+  at best. `GetNextMultiQueryRows`'s actual trigger condition (if any) was not reproduced.
+- Always call `ReleaseMultiQuery {"QueryID": ...}` when done (confirmed working) — same
+  cleanup discipline as `ReleaseSingleQuery`.
+- For very large result sets, prefer separate `ExecuteAsyncSingleQuery` calls per category,
+  since that's the endpoint with confirmed working pagination.
 
 ---
 
@@ -717,11 +728,37 @@ Verified against a live tenant 2026-07-16. Note the live API does **not** expose
 }
 ```
 
-#### AddComment / EditComment
+#### AddComment
 
-Not yet verified against a live tenant — request shape presumably mirrors `LoadComments`
-(`ObjNo`/`ObjType`) plus comment text and, for `EditComment`, a comment ID. Confirm before
-relying on this.
+Verified against a live tenant 2026-07-16.
+
+```json
+// Request:
+{"ObjNo": 265461, "ObjType": 2, "CommentText": "Approved, ready to file"}
+
+// Response: (empty on success)
+{}
+```
+
+#### EditComment
+
+Requires the comment's `ID` (a GUID string), returned by `LoadComments`.
+
+```json
+// Request:
+{
+  "ObjNo": 265461,
+  "ObjType": 2,
+  "ID": "3d2089e2-499d-452b-8d6b-80e557888506",
+  "CommentText": "Approved, ready to file (edited)"
+}
+
+// Response: (empty on success)
+{}
+```
+
+**Note:** There is no `DeleteComment` endpoint (confirmed absent from the live WSDL operation
+list) — comments cannot be removed via the API, only added or edited.
 
 ---
 
@@ -938,6 +975,150 @@ Complete a workflow task (advance to next step using a named exit/transition).
 ```
 
 Use `ExecuteTaskInfoQuery` to get `TaskNo` and valid `ExitNo` values before calling.
+
+---
+
+## Cases
+
+A **case** is a folder-like object defined by a **case definition** (`CaseDefNo`) that
+groups documents from one or more categories, with its own index fields and history —
+distinct from an ordinary document/category. Discover case definitions via
+`GetCategoriesTree` — nodes with `ItemType: 3` (see pitfall #22); their `ItemNo` is the
+`CaseDefNo`.
+
+Full lifecycle verified against a live tenant 2026-07-16 (created and deleted a test case).
+
+### GetCaseDefinition
+
+Get the case definition's metadata: linked categories and index fields.
+
+```json
+// Request:
+{"CaseDefinitionNo": 11}
+
+// Response:
+{
+  "CaseDefinition": {
+    "CaseDefNo": 11,
+    "Categories": [
+      {"CategoryNo": 154, "Name": "Test Category 1", "Title": "Test Category 1", ...}
+    ],
+    "Fields": [
+      {"FieldNo": 3742, "Caption": "ID", ...}
+    ]
+  }
+}
+```
+
+**Note:** the request parameter is `CaseDefinitionNo`, not `CaseDefNo` (despite the
+response field being named `CaseDefNo`).
+
+### CreateCase
+
+```json
+// Request:
+{"CaseDefNo": 11}
+
+// Response:
+{
+  "CaseNo": 92,
+  "LastChangeTime": "/Date(1784202283132)/",
+  "LastChangeTimeISO8601": "2026-07-16T11:44:43.1320000Z"
+}
+```
+
+Only `CaseDefNo` is required to create an empty case — index field values can be set
+afterward via `SaveCaseIndexData`/`SaveCaseIndexDataQuick` (not yet verified — presumed to
+mirror `UpdateDocument2`'s `IndexData`/`LastChangeTime` pattern).
+
+### GetCase
+
+```json
+// Request:
+{"CaseNo": 92}
+
+// Response:
+{
+  "Case": {
+    "CaseDefinitionNo": 11,
+    "CaseNo": 92,
+    "CreatedByUser": "Craig Mewett",
+    "CreatedByUserNo": 9,
+    "CreatedOn": "/Date(...)/",
+    "IsClosed": false,
+    "IndexData": {
+      "CategoryNo": 0,
+      "CtgryName": "Referenced Case Test",
+      "IndexDataItems": [...]
+    }
+  }
+}
+```
+
+An unknown/deleted `CaseNo` returns a 500 `ObjectDoesNotExist` ("Case does not exist").
+
+### GetCaseDocuments
+
+```json
+// Request:
+{"CaseNo": 92}
+
+// Response:
+{"DocumentNos": [265461, 265462]}
+```
+
+**Untested caveat:** in live testing, calling `LinkCaseToDocument` (below) against a fresh
+case returned `200 {}` (apparent success) but the linked `DocNo` did not subsequently
+appear in `GetCaseDocuments`. The minimal `{"CaseNo", "DocNo"}` payload may be incomplete —
+investigate further (e.g. a required `CategoryNo`/`FieldNo` pairing) before relying on this
+for a real integration.
+
+### GetCaseHistory / GetCaseHistory2
+
+Identical shape in testing; `GetCaseHistory2` additionally returns `AllRowsLoaded` (likely
+supports pagination for long-running cases, not yet verified).
+
+```json
+// Request:
+{"CaseNo": 92}
+
+// Response:
+{
+  "CaseHistory": [
+    {
+      "ActionDate": "/Date(...)/",
+      "EntryType": 1,
+      "UserName": "Craig Mewett",
+      "UserNo": 9,
+      "Text": "",
+      "AdditionalInfo": "Referenced Case Test -"
+    }
+  ]
+}
+```
+
+### LinkCaseToDocument / LinkCases / UnlinkCases
+
+`LinkCaseToDocument` takes `{"CaseNo": N, "DocNo": N}` and returns `200 {}`, but see the
+caveat under `GetCaseDocuments` above — the observable effect wasn't confirmed. `LinkCases`
+and `UnlinkCases` (presumably linking one case to another) were not tested.
+
+### CloseCase / ReopenCase / DeleteCase / RestoreDeletedCase
+
+Not all tested individually, but `DeleteCase` is confirmed:
+
+```json
+// Request:
+{"CaseNo": 92}
+
+// Response: (empty on success)
+{}
+```
+
+After deletion, `GetCase`/`GetCaseDocuments`/etc. against that `CaseNo` return a 500
+`"The case has already been deleted from Therefore"` rather than `ObjectDoesNotExist`,
+distinguishing "deleted" from "never existed". `RestoreDeletedCase` presumably reverses
+this (not tested — no need arose since the delete confirmation was sufficient).
 
 ---
 

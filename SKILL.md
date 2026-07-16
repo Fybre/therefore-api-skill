@@ -406,7 +406,7 @@ Returns `Name`, `CategoryFields[]` (each with `Caption`, `FieldNo`, type info).
 | `DeleteDocument` | Delete document | `DocNo` |
 
 | `ExecuteAsyncMultiQuery` | Query multiple categories | `Queries` array — see pitfall #25 (pagination unreliable) |
-| `ExecuteFullTextQuery` | Full text search | `FullTextQuery` object |
+| `ExecuteFullTextQuery` | Full text search | `FullTextQuery` object — see pitfalls #29–30 (real field names, indexing gaps) |
 | `GetKeywordsByFieldNo` | Keyword lookup by field | `FieldNo` |
 | `ExecuteUsersQuery` | List all users | `{"Flags": 4}` — see pitfall #19 |
 | `GetObjects` | List users + groups combined | `{"Flags": 0, "Type": 11}` |
@@ -792,6 +792,24 @@ fetch the JavaScript/Formio reference URL above.
     identical to a plain `CategoryNo` query). There is no query-time case filter — use
     `GetCaseDocuments` to list a case's document numbers instead, or `CategoryNo` from
     `GetCaseDefinition`'s `Categories` list if you need to actually query.
+
+29. **`ExecuteFullTextQuery`'s real request shape is `Search`/`Categories`, not
+    `SearchText`/`CategoryNo`** → The field names in some older docs/examples are wrong.
+    The live server requires `Search` (string), `Categories` (array — `[]` means all
+    categories, not none), plus `ContextMode`, `SearchScope`, and `SortOrder` — omit any
+    of those and it 500s ("required data members ... were not found"). The response is
+    also a flat `{"Results": [...]}` array with `MatchedWords`/`Relevance` per hit, not
+    the `QueryResult`/`Columns`/`ResultRows` shape `ExecuteSingleQuery` uses.
+
+30. **A category having `IsFulltextEnabled: true` doesn't mean every document in it is
+    full-text searchable** → Verified against a live tenant: a document with `IsFulltextEnabled`
+    on its category, and confirmed real text content in its PDF (extracted and read
+    directly), still returned zero full-text hits — even when the query was scoped to
+    only that document's category. There's no REST endpoint to trigger a reindex (checked
+    the live WSDL operation list). If a full-text search seems to be missing a document
+    you know contains the term, don't assume the query is wrong — the document may
+    simply not be in the full-text index yet (failed/pending indexing), which needs
+    checking from the Therefore admin console, not the API.
 
 ## Keeping Knowledge in Sync
 

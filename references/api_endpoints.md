@@ -765,34 +765,72 @@ list) — comments cannot be removed via the API, only added or edited.
 ### ExecuteFullTextQuery
 
 Search document file content (not index fields) using full-text keywords.
-Requires the Therefore full-text index to be enabled and current.
+Requires the Therefore full-text index to be enabled per-category
+(`GetCategoryInfo`'s `IsFulltextEnabled`) and the document to actually be indexed —
+see the pitfall below.
+
+**IMPORTANT — the request shape below is verified against a live tenant 2026-07-16 and
+differs from older docs/examples that show `SearchText`/`CategoryNo`.** The real request
+requires `Search` (not `SearchText`), `Categories` (a plural array, not `CategoryNo`),
+and `ContextMode`/`SearchScope`/`SortOrder` — omitting any of these causes a 500
+`"...cannot be deserialized because the required data members ... were not found"`.
 
 ```json
 // Request:
 {
   "FullTextQuery": {
-    "SearchText": "invoice urgent review",
-    "CategoryNo": 8,
-    "MaxRows": 100
-  }
+    "Search": "invoice urgent review",
+    "Categories": [8],
+    "MaxRows": 100,
+    "BlockSize": 100,
+    "CaseNo": 0,
+    "ContextMaxSizeKB": 0,
+    "ContextMode": 0,
+    "FuzzySearchLevel": 0,
+    "LCID": 0,
+    "MaxContentChars": 0,
+    "SearchScope": 0,
+    "SortOrder": 0,
+    "UseThesaurus": false
+  },
+  "IncludeIndexData": false
 }
 
-// Response: (same structure as ExecuteSingleQuery)
+// Response:
 {
-  "QueryResult": {
-    "Columns": [...],
-    "ResultRows": [
-      {"DocNo": 265461, "VersionNo": 1, "IndexValues": [...]}
-    ]
-  },
-  "HasRemainingRows": false
+  "Results": [
+    {
+      "DocNo": 265461,
+      "CategoryNo": 8,
+      "CategoryName": "Invoices",
+      "Title": "Invoice 67307PAOP",
+      "Extension": "|PDF|",
+      "DocSize": 99004,
+      "HitCount": 1,
+      "MatchedWords": ["urgent"],
+      "Relevance": 100,
+      "Rank": 0,
+      "Context": "",
+      "Modified": "/Date(...)/",
+      "ModifiedISO8601": "2026-...",
+      "IndexData": null
+    }
+  ]
 }
 ```
 
+**Response shape does NOT match `ExecuteSingleQuery`** — there's no `QueryResult`/
+`Columns`/`ResultRows`/`HasRemainingRows` wrapper, just a flat `Results` array. Each
+result includes `MatchedWords` and a `Relevance` score, which regular index queries
+don't have.
+
 **Notes:**
-- `CategoryNo` is optional — omit to search across all categories.
-- Results are synchronous and inline — no `QueryId`/pagination. Use `MaxRows` to cap results.
-- `SearchText` supports boolean operators and phrase quoting: `"purchase order" AND approved`.
+- `Categories: []` (empty array) searches across all categories — confirmed working,
+  not "search nothing."
+- Results are synchronous and inline — no `QueryId`/pagination for the basic call
+  (an async variant, `ExecuteAsyncFullTextQuery`, also exists but wasn't tested).
+- `Search` supports boolean operators and phrase quoting: `"purchase order" AND approved`
+  (untested against a live tenant — inherited from older docs, treat as unconfirmed).
 
 ---
 

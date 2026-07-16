@@ -410,7 +410,13 @@ Returns `Name`, `CategoryFields[]` (each with `Caption`, `FieldNo`, type info).
 | `GetKeywordsByFieldNo` | Keyword lookup by field | `FieldNo` |
 | `ExecuteUsersQuery` | List all users | `{"Flags": 4}` — see pitfall #19 |
 | `GetObjects` | List users + groups combined | `{"Flags": 0, "Type": 11}` |
-| `GetUsersFromGroup` | Members of a group | `{"GroupName": "..."}` — name only, not ID |
+| `GetUsersFromGroup` | Members of a group | `{"GroupName": "..."}` or `{"GroupId": N}` — see pitfall #21 |
+| `GetCategoriesTree` | Full category/folder tree | see pitfall #22 for real response shape |
+| `GetDocumentCheckoutStatus` | Check-out state of a doc | `DocNo` |
+| `CheckOutDocument` | Lock a doc for editing | `DocNo` |
+| `UndoCheckOutDocument` | Release a checkout w/o saving | `DocNo` |
+| `CheckInDocument` | Save & release a checkout | `DocNo` + new content — see pitfall #24 |
+| `LoadComments` | List comments on a doc | `{"ObjNo": N, "ObjType": 2, "MaxCount": N}` |
 
 ## User & Group Management
 
@@ -465,7 +471,14 @@ groups = [i for i in items if i["Data"] == 2]
 {"GroupName": "THEREFORE_ADMINISTRATORS"}
 ```
 
-- Resolves by **name only** — passing a numeric `GroupNo` is silently ignored.
+Resolves by name, or by numeric ID via `GroupId` (the group's `ID` from `GetObjects`):
+```json
+{"GroupId": 1}
+```
+
+- `GroupNo` is **not** a valid parameter name — it 500s with "Could not find group
+  matching the name provided: '' in domain: ''" (fails loudly, not silently). Use
+  `GroupName` or `GroupId`.
 - Returns `{"Users": []}` (200 OK) for groups with no members.
 - Returns a 500 WSError for unknown group names.
 
@@ -650,9 +663,28 @@ fetch the JavaScript/Formio reference URL above.
     `GetObjects {"Flags":0,"Type":11}` instead and filter the `ItemList` by `Data==2`
     to isolate groups (`Data==1` = users, `Data==3` = system principals).
 
-21. **`GetUsersFromGroup` uses group name, not ID** → The `GroupName` string parameter
-    is required. Passing a numeric `GroupNo` is silently ignored and returns no members.
-    An unknown group name returns a 500 WSError.
+21. **`GetUsersFromGroup` accepts `GroupName` or `GroupId`, not `GroupNo`** → Use the
+    string `GroupName`, or the numeric `GroupId` (the group's `ID` field from `GetObjects`).
+    `GroupNo` is not a recognized parameter — it 500s ("Could not find group matching the
+    name provided") rather than silently being ignored. An unknown group name/ID also
+    returns a 500 WSError.
+
+22. **`GetCategoriesTree` returns `TreeItems`, not `CategoriesTree`** → Items nest under
+    `ChildItems` (not `Children`), and the ID field is `ItemNo`, typed by `ItemType`:
+    `1` = folder (`ItemNo` is a `FolderNo`), `2` = category (`ItemNo` is a `CategoryNo` —
+    only these are queryable/document-bearing), `3` = case definition. Walk the tree
+    recursively and filter on `ItemType == 2` to get queryable categories.
+
+23. **`GetDocumentVersions` and `GetComments` don't exist on the live server** → Some
+    client library wrappers reference these names, but the real API 405s on
+    `GetDocumentVersions`, and the comments endpoint is `LoadComments` (requires
+    `ObjNo`, `ObjType`, `MaxCount` — use `ObjType: 2` for a document; `0`/`1` fail with
+    "Unsupported object type for comment").
+
+24. **`CheckInDocument` needs actual content to check in** → Calling it with just
+    `{"DocNo": ...}` and no changes fails with "The document file is not open." If you
+    only need to release a checkout without saving changes, use `UndoCheckOutDocument`
+    instead.
 
 ## Keeping Knowledge in Sync
 

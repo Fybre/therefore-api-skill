@@ -9,6 +9,7 @@ Content-Type: `application/json; charset=utf-8`
 - [Categories](#categories)
 - [Queries](#queries)
 - [Documents](#documents)
+- [Comments](#comments)
 - [Users](#users)
 - [Keywords](#keywords)
 - [Workflows](#workflows)
@@ -50,7 +51,7 @@ Get server/domain information.
 
 ### GetCategoriesTree
 
-List all categories the user has access to.
+List the full folder/category/case-definition tree the user has access to.
 
 ```json
 // Request:
@@ -58,16 +59,45 @@ List all categories the user has access to.
 
 // Response:
 {
-  "CategoriesTree": [
+  "TreeItems": [
     {
-      "CategoryNo": 8,
-      "Name": "Invoices",
-      "ParentCategoryNo": 0,
-      "Children": [...]
+      "ItemNo": 172,
+      "ItemType": 1,
+      "Name": "Archive",
+      "FolderType": 3,
+      "ParentFolderNo": 1,
+      "ParentCaseDefNo": 0,
+      "Guid": "5e382580-b3b6-4837-b090-a0a87e5c17f5",
+      "ChildItems": [
+        {
+          "ItemNo": 56,
+          "ItemType": 2,
+          "Name": "Test Category",
+          "FolderType": 0,
+          "ParentFolderNo": 105,
+          "ParentCaseDefNo": 0,
+          "Guid": "...",
+          "ChildItems": []
+        }
+      ]
     }
   ]
 }
 ```
+
+**IMPORTANT — this does not match older docs/examples that show `CategoriesTree`/`CategoryNo`/`Children`.**
+The live response key is `TreeItems`, and items nest under `ChildItems` (recursively — walk it
+depth-first to flatten). Each item's `ItemNo` is the ID for whatever `ItemType` it is:
+
+| `ItemType` | Meaning | `ItemNo` is a... |
+|---|---|---|
+| `1` | Folder | `FolderNo` |
+| `2` | Category (leaf — use with `GetCategoryInfo`/`ExecuteSingleQuery`) | `CategoryNo` |
+| `3` | Case definition | `CaseDefNo` |
+
+Only `ItemType: 2` nodes are queryable documents categories. Verified against a live tenant
+2026-07-16: an `ItemNo` from an `ItemType: 2` node passed straight into
+`GetCategoryInfo.CategoryNo` returns that category's field definitions correctly.
 
 ### GetCategoryInfo
 
@@ -599,6 +629,102 @@ Get version/change history for a document.
 
 ---
 
+### Document Check-Out / Check-In
+
+Verified against a live tenant 2026-07-16. `GetDocumentVersions` does **not** exist on the
+live server (405) despite appearing in some client wrapper code — do not use it.
+
+#### GetDocumentCheckoutStatus
+
+```json
+// Request:
+{"DocNo": 265461}
+
+// Response:
+{
+  "CheckOutStatus": {
+    "CheckOutState": 0,
+    "SomebodyElseName": ""
+  }
+}
+```
+
+`CheckOutState`: `0` = not checked out, `1` = checked out by the current caller. When
+someone else holds the checkout, `SomebodyElseName` is populated with their name.
+
+#### CheckOutDocument
+
+```json
+// Request:
+{"DocNo": 265461}
+
+// Response:
+{
+  "CheckOutSucceeded": true,
+  "CurrentVersionNumber": 0,
+  "SomebodyElseName": ""
+}
+```
+
+#### CheckInDocument
+
+Checking in requires the document to actually be "open" (i.e. have new content supplied,
+e.g. via streams) — calling it with just `{"DocNo": ...}` and no changes fails:
+
+```json
+// Request that FAILS with no changes supplied:
+{"DocNo": 265461}
+// -> 500 InternalError: "The document file is not open."
+```
+
+The exact shape of a successful `CheckInDocument` payload (streams/index data) has not yet
+been verified against a live tenant — treat as TODO before relying on it. If you don't need
+to replace the file content, `UndoCheckOutDocument` is the safe way to release a checkout.
+
+#### UndoCheckOutDocument
+
+Releases a checkout without saving changes.
+
+```json
+// Request:
+{"DocNo": 265461}
+
+// Response: (empty object on success)
+{}
+```
+
+---
+
+### Comments
+
+Verified against a live tenant 2026-07-16. Note the live API does **not** expose a
+`GetComments` endpoint (despite some client wrapper naming) — the real endpoint is
+`LoadComments`.
+
+#### LoadComments
+
+`ObjType` must be `2` for a document — `0` and `1` both fail with
+`"Unsupported object type for comment"`.
+
+```json
+// Request:
+{"ObjNo": 265461, "ObjType": 2, "MaxCount": 50}
+
+// Response:
+{
+  "AllLoaded": true,
+  "Comments": []
+}
+```
+
+#### AddComment / EditComment
+
+Not yet verified against a live tenant — request shape presumably mirrors `LoadComments`
+(`ObjNo`/`ObjType`) plus comment text and, for `EditComment`, a comment ID. Confirm before
+relying on this.
+
+---
+
 ### ExecuteFullTextQuery
 
 Search document file content (not index fields) using full-text keywords.
@@ -637,16 +763,82 @@ Requires the Therefore full-text index to be enabled and current.
 
 ### ExecuteUsersQuery
 
-Look up users by name or other criteria. (**Note:** `ResolveUserName` does not exist
-on the live server — use `ExecuteUsersQuery` instead.)
+Look up users. (**Note:** `ResolveUserName` does not exist on the live server —
+use `ExecuteUsersQuery` instead.)
+
+Verified against a live tenant 2026-07-16: `{"Flags": 4}` (no `Query` filter) reliably
+returns every regular named user. `{"Query": "*", "Flags": 5}` returned an empty list on
+the same tenant — prefer `Flags: 4` for listing all users.
 
 ```json
-// Request:
-{"Query": "john.smith", "Flags": 5}
+// Request — list all users:
+{"Flags": 4}
+
+// Response:
+{
+  "Users": [
+    {
+      "UserId": 9,
+      "UserName": "craig.mewett",
+      "DisplayName": "craig.mewett",
+      "SMTP": "craig.mewett@example.com",
+      "Disabled": false,
+      "UserType": 1,
+      "GUID": "970B5D72-7E37-4D26-9AB5-382B709392B8"
+    }
+  ]
+}
 ```
 
 **Note:** AD/LDAP users always return `UserId: 0`. Use the username string
 for identification instead of the numeric ID.
+
+### GetObjects
+
+Lists users and groups together (there is no dedicated `GetGroups` endpoint — that returns 405).
+
+```json
+// Request:
+{"Flags": 0, "Type": 11}
+
+// Response:
+{
+  "FolderList": [],
+  "ItemList": [
+    {"Data": 2, "ID": 1, "Name": "Administrators", "Guid": "...", "Flags": 0, "FolderNo": 0},
+    {"Data": 1, "ID": 2, "Name": "Administrator", "Guid": "...", "Flags": 0, "FolderNo": 0}
+  ]
+}
+```
+
+Filter `ItemList` by `Data`: `1` = user, `2` = group, `3` = special system principal.
+`ID` is the group's numeric ID — pass it as `GroupId` to `GetUsersFromGroup` (see below).
+
+Verified against a live tenant 2026-07-16: adding `"PermType": 8` to the request body
+(seen in some client wrapper code) made no observable difference to the result — the
+plain `{"Flags": 0, "Type": 11}` body above is sufficient.
+
+### GetUsersFromGroup
+
+```json
+// Request — by name:
+{"GroupName": "Administrators"}
+
+// Request — by numeric ID (alternative):
+{"GroupId": 1}
+
+// Response:
+{"Users": [{"UserId": 2, "UserName": "Administrator", ...}]}
+```
+
+Verified against a live tenant 2026-07-16:
+- `GroupName` (string) works.
+- `GroupId` (the group's numeric `ID` from `GetObjects`) also works.
+- `GroupNo` is **not** a valid parameter name — sending it returns a 500
+  `"Could not find group matching the name provided: '' in domain: ''"` because the server
+  falls back to an empty group-name lookup. It fails loudly, it does not silently ignore
+  the parameter.
+- An unrecognized group name (whether via `GroupName` or `GroupId`) returns a 500 WSError.
 
 ---
 

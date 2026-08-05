@@ -1038,15 +1038,7 @@ calling. The REST contract uses `TaskDecision`; `SelectedExitNo`, `UserDecision`
 
 ---
 
-## Cases
-
-A **case** is a folder-like object defined by a **case definition** (`CaseDefNo`) that
-groups documents from one or more categories, with its own index fields and history —
-distinct from an ordinary document/category. Discover case definitions via
-`GetCategoriesTree` — nodes with `ItemType: 3` (see pitfall #22); their `ItemNo` is the
-`CaseDefNo`.
-
-### Referenced-table fields and dependent values
+## Referenced-table fields and dependent values
 
 A referenced-table field stores the referenced row's ID. Its typed index-data wrapper follows
 the underlying type of the referenced table's index column, and the value must identify a row
@@ -1058,10 +1050,17 @@ Use this sequence:
 2. Call `GetReferencedTableInfo {"DataTypeNo": TypeNo}`. Its `IndexColumn` identifies the
    stored ID column; match that column in `Columns[]` to determine its scalar type.
 3. Call `ExecuteDependentFieldsQuery` to list valid rows for the target field and the current
-   index state.
+   index state. Specify exactly one of `CategoryNo` or `CaseDefinitionNo`; omit the unused
+   member instead of sending zero.
 4. Submit the selected ID to `FillDependentFields`, using exactly one context member.
 5. Save `UpdatedIndexDataItems`, which includes both the primary reference and populated
    dependent fields.
+
+For a new document/category context, run `PreprocessIndexData` first and pass its complete
+`IndexData.IndexDataItems`. For an existing document, use the complete items and `CategoryNo`
+from `GetDocumentIndexData`. The high-level MCP operation
+`therefore_categories.resolve_referenced_field` performs those preparation steps automatically
+and can query plus fill a `selected_row_index` in one call.
 
 Case-context example:
 
@@ -1069,7 +1068,6 @@ Case-context example:
 // ExecuteDependentFieldsQuery
 {
   "CaseDefinitionNo": 11,
-  "CategoryNo": 0,
   "FieldNo": 3742,
   "IndexDataItems": [],
   "MaxRows": 500,
@@ -1095,8 +1093,32 @@ positional mapping. On craigdemo, this returned ID `"1"` and its dependent Start
 }
 ```
 
-For a case, omit `DocNo` and `CategoryNo` entirely. Do not send zero placeholders:
-`FillDependentFields` treats `DocNo` and `CategoryNo` as mutually exclusive members.
+Category-context example:
+
+```json
+// ExecuteDependentFieldsQuery after PreprocessIndexData
+{
+  "CategoryNo": 154,
+  "FieldNo": 3749,
+  "IndexDataItems": ["<complete preprocessed items>"],
+  "MaxRows": 500,
+  "SaveMode": false
+}
+```
+
+For `FillDependentFields`, specify exactly one of `DocNo`, `CategoryNo`, or
+`CaseDefinitionNo`. Do not send zero placeholders. Save the returned items through the
+appropriate document or case save endpoint.
+
+---
+
+## Cases
+
+A **case** is a folder-like object defined by a **case definition** (`CaseDefNo`) that
+groups documents from one or more categories, with its own index fields and history —
+distinct from an ordinary document/category. Discover case definitions via
+`GetCategoriesTree` — nodes with `ItemType: 3` (see pitfall #22); their `ItemNo` is the
+`CaseDefNo`.
 
 Full lifecycle verified against a live tenant 2026-07-16 (created and deleted a test case).
 

@@ -51,9 +51,11 @@
     },
     "ExecuteDependentFieldsQuery": {
       "method": "POST",
-      "required": ["CaseDefinitionNo", "CategoryNo", "FieldNo", "IndexDataItems", "MaxRows", "SaveMode"],
+      "required": ["FieldNo", "IndexDataItems", "MaxRows", "SaveMode"],
+      "context_members": ["CaseDefinitionNo", "CategoryNo"],
       "response_root": "QueryResult",
-      "mutability": "read"
+      "mutability": "read",
+      "note": "Specify exactly one context member and omit the unused member; category context requires complete preprocessed/current IndexDataItems."
     },
     "ExecuteUsersQuery": {
       "method": "POST",

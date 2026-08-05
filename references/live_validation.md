@@ -34,6 +34,21 @@ Category 56 (`Test Category`) was used for an isolated test document.
   index update, checkout/undo, deletion, and post-delete verification all passed.
 - Document 22161 was created by the test and confirmed deleted afterward.
 
+### Referenced fields across category and document contexts
+
+Category 154 (`Test Category 1`) was used to verify the general referenced-field workflow.
+
+- Field 3749 references case-definition type 173 (`TheCaseDef_11`) through integer index
+  column `CaseNo`. `ExecuteDependentFieldsQuery` returned case 66 plus its dependent ID/date.
+- The high-level grouped operation `therefore_categories.resolve_referenced_field` inferred
+  `IntIndexData`, selected row 0, and `FillDependentFields` populated fields 3749–3753.
+- A new disposable document was created from that filled category state. The resolver was
+  then called using its `DocNo`; `SaveDocumentIndexData` and read-back both passed.
+- `ExecuteDependentFieldsQuery` requires exactly one of `CategoryNo` or `CaseDefinitionNo`.
+  An unused zero-valued context is not equivalent to omission. New-category queries require
+  the complete state returned by `PreprocessIndexData`.
+- Disposable document 22163 was deleted and confirmed unavailable afterward.
+
 ### Disposable case results
 
 Case definition 11 (`Referenced Case Test`) was used.

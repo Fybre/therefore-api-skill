@@ -581,10 +581,10 @@ below).
 | `ask_therefore_expert` | Natural-language router — describe what you want, get back the exact tool/operation/parameters to call. Start here. |
 | `therefore_connect` | Register a tenant/login at runtime (see below). |
 | `therefore_system` | Customer ID, connected user, version, ADFS/SSO token exchange, objects/statistics, log files. |
-| `therefore_categories` | Category tree, category info, field listing, config generation. |
+| `therefore_categories` | Category tree/info, field listing, referenced-table metadata/query, dependent-field query/fill, high-level referenced-field resolution, config generation. |
 | `therefore_documents` | Get/create/update/delete, history, checkout/checkin, streams, comments. |
 | `therefore_query` | Single/multi/full-text search, pagination, release. |
-| `therefore_workflow` | Tasks, task completion, claim/disclaim/delegate, Cases. |
+| `therefore_workflow` | Tasks, task completion, claim/disclaim/delegate, Cases and case index saves. |
 | `therefore_users` | Search, create, get details, group membership. |
 | `therefore_keywords` | Get by field/dictionary, add. |
 | `therefore_knowledge` | Search the server's local knowledge base. |
@@ -625,17 +625,19 @@ restart:
   the parameters spelled out — this works even on a freshly started server with zero
   tenants configured.
 
-### Known gaps in the MCP tool surface (as of 2026-07-16)
+### Known gaps in the MCP tool surface (as of 2026-08-05)
 
 - `therefore_documents` has **no document-copy operation** — the underlying
   `CopyDocument` endpoint doesn't exist on the live server (confirmed via WSDL) and no
   replacement was found, so the operation was removed entirely rather than left in as a
   guaranteed-to-fail stub.
-- Cases support includes `get_case_definition`, `create_case`, `get_case`,
-  `get_case_documents`, `get_case_history`, referenced-value discovery
-  (`execute_dependent_fields_query`), dependent-field resolution (`fill_dependent_fields`),
-  and quick/full case index saves. `LinkCaseToDocument`, `CloseCase`/`ReopenCase`/`DeleteCase`,
-  and `LinkCases`/`UnlinkCases` are not wired up yet.
+- Generic referenced-field support is exposed through `therefore_categories`, including
+  `get_referenced_table_info`, `execute_dependent_fields_query`, `fill_dependent_fields`,
+  and `resolve_referenced_field`; it works with category, existing-document, and case
+  contexts. The workflow tool retains the two low-level dependent-field operations as
+  compatibility aliases. Cases also support definition/create/read/documents/history and
+  quick/full index saves. `LinkCaseToDocument`, `CloseCase`/`ReopenCase`/`DeleteCase`, and
+  `LinkCases`/`UnlinkCases` are not wired up yet.
 - `therefore_query`'s `search`/`search_async` operations do **not** support filtering by
   case — see pitfall #28. To answer "what categories/documents belong to this case", use
   `therefore_workflow`'s `get_case_definition` (categories) and `get_case_documents`
@@ -871,6 +873,14 @@ fetch the JavaScript/Formio reference URL above.
     exactly one of `DocNo`, `CategoryNo`, or `CaseDefinitionNo`. Sending `DocNo: 0` alongside
     `CategoryNo: 0` fails because `DocNo` and `CategoryNo` are mutually exclusive. For case
     index data, send `CaseDefinitionNo` and omit both document and category members.
+
+36. **`ExecuteDependentFieldsQuery` also requires one real definition context** → Specify
+    exactly one of `CategoryNo` or `CaseDefinitionNo`; omit the other member. For a new
+    category document, first call `PreprocessIndexData` and pass its complete typed
+    `IndexDataItems`. For an existing document, pass the complete current items and category
+    number from `GetDocumentIndexData`. The grouped MCP helper
+    `therefore_categories.resolve_referenced_field` automates metadata lookup, preprocessing,
+    valid-row querying, typed ID selection, and dependent-field filling.
 
 ## Keeping Knowledge in Sync
 

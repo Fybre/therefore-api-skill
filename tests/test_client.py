@@ -85,7 +85,7 @@ class ClientContractTests(unittest.TestCase):
         self.client.fill_dependent_fields(items, 3742, case_definition_no=11)
         self.assertEqual(self.client.calls[0][2], {"DataTypeNo": 172})
         self.assertEqual(self.client.calls[1][2], {
-            "CaseDefinitionNo": 11, "CategoryNo": 0, "FieldNo": 3742,
+            "CaseDefinitionNo": 11, "FieldNo": 3742,
             "IndexDataItems": [], "MaxRows": 20, "SaveMode": False,
         })
         self.assertNotIn("DocNo", self.client.calls[2][2])

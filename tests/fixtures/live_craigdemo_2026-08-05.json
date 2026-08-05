@@ -69,12 +69,23 @@
       },
       "retest_required": false
     },
+    "referenced_field_contexts": {
+      "category": 154,
+      "primary_field": 3749,
+      "data_type": 173,
+      "index_column": "CaseNo",
+      "index_data_kind": "IntIndexData",
+      "valid_value": 66,
+      "category_resolver": true,
+      "document_resolver": true,
+      "document_save_read_back": true
+    },
     "case_document_link": {
       "status": "not_run",
       "reason": "The linked category rejected disposable document creation before a case or link was created."
     },
     "cleanup_verified": {
-      "document_numbers": [22161],
+      "document_numbers": [22161, 22163],
       "case_numbers": [96, 97, 98, 99, 100, 101],
       "all_unavailable_after_cleanup": true
     }

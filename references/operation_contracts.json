@@ -35,7 +35,8 @@
       "method": "POST",
       "required": ["CategoryNo", "IndexDataItems", "Streams"],
       "forbidden": ["TheDocument"],
-      "mutability": "write"
+      "mutability": "write",
+      "note": "WithAutoAppendMode 0 uses the category default; mode 4 means no auto-append check."
     },
     "EditComment": {
       "method": "POST",
@@ -53,6 +54,13 @@
       "required": ["Flags"],
       "mutability": "read"
     },
+    "ExecuteTaskInfoQuery": {
+      "method": "POST",
+      "required": ["MaxRows", "QueryMode", "ViewMode"],
+      "optional": ["TaskNo"],
+      "response_root": "QueryResult",
+      "mutability": "read"
+    },
     "GetCategoriesTree": {
       "method": "POST",
       "required": [],
@@ -64,6 +72,14 @@
       "required": ["DocNo", "StreamNo"],
       "response_root": "FileData",
       "mutability": "read"
+    },
+    "GetObjects": {
+      "method": "POST",
+      "required": ["Flags", "Type"],
+      "optional": ["PermType", "RoleAccessMask", "Permissions", "RequireAllPermissions"],
+      "response_root": "ItemList",
+      "mutability": "read",
+      "note": "Do not send the uint64-max RoleAccessMask by default; it returned zero items on craigdemo 35.0.3.0 while the plain request returned 32."
     },
     "GetSystemCustomerId": {
       "method": "GET",

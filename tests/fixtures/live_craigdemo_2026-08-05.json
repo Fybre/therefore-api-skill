@@ -1,0 +1,68 @@
+{
+  "tenant": "craigdemo",
+  "verified_on": "2026-08-05",
+  "service": {
+    "description": "Therefore Web API",
+    "api_version": "1.0",
+    "service_version": "35.0.3.0",
+    "auth_method": "basic"
+  },
+  "read_tests": {
+    "connection_token": true,
+    "category_tree": {"categories": 204, "case_definitions": 11},
+    "max_rows": {"category": 1, "omitted": 500, "zero": 500, "explicit_501": 501},
+    "document": {"index_data": true, "history": true, "checkout_status": true, "comments": true},
+    "stream": {
+      "category": 78,
+      "bytes": 793977,
+      "sha256": "faa11a03c8f3ebb963e5852d0f0e224e851e3c249319481877218753c1a1863d"
+    },
+    "users": {"regular": 19, "disabled": 2},
+    "get_objects": {"plain_request_items": 32, "with_uint64_max_role_access_mask_items": 0},
+    "keywords": {"category": 73, "field": 1378, "returned": 3},
+    "execute_task_info_query": {
+      "empty_body_deserialization_error": true,
+      "required_members": ["MaxRows", "QueryMode", "ViewMode"],
+      "response_root": "QueryResult"
+    }
+  },
+  "write_tests": {
+    "document": {
+      "category": 56,
+      "default_auto_append_failed": true,
+      "successful_auto_append_mode": 4,
+      "create": true,
+      "query_read_back": true,
+      "stream_round_trip": true,
+      "comment_add_read_back": true,
+      "comment_edit_read_back": true,
+      "index_update_read_back": true,
+      "checkout_undo": true,
+      "delete_read_back": true
+    },
+    "case": {
+      "case_definition": 11,
+      "create": true,
+      "history": true,
+      "close_read_back": true,
+      "reopen_read_back": true,
+      "delete_read_back": true,
+      "restore_read_back": true,
+      "final_delete_read_back": true
+    },
+    "case_index_save": {
+      "quick_partial": "ServerError",
+      "quick_full_state": "ServerError",
+      "concurrency_save": "ServerError"
+    },
+    "case_document_link": {
+      "status": "not_run",
+      "reason": "The linked category rejected disposable document creation before a case or link was created."
+    },
+    "cleanup_verified": {
+      "document_numbers": [22161],
+      "case_numbers": [96, 97, 98, 99],
+      "all_unavailable_after_cleanup": true
+    }
+  }
+}

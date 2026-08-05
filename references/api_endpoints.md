@@ -144,18 +144,12 @@ Get detailed category metadata including all field definitions.
 }
 ```
 
-**FieldType values:**
-| Value | Type |
-|-------|------|
-| 0 | String |
-| 1 | Integer |
-| 2 | Date |
-| 3 | Money |
-| 4 | Logical (boolean) |
-| 5 | Single Keyword |
-| 6 | Multiple Keywords |
-| 7 | Table |
-| 8 | DateTime |
+**Do not use a generic `FieldType` number table to choose write payloads.** The numeric values
+in `GetCategoryInfo.CategoryFields` are category-definition type codes and are not the same
+enum as query-result column types. On craigdemo 35.0.3.0, preprocessing category 56 mapped
+`TypeNo: 1` to `StringIndexData` and `TypeNo: 8` to `IntIndexData`, while `TypeNo: 4`
+described fields that were not returned as standalone scalar index items. Use field metadata
+plus `PreprocessIndexData.IndexData.IndexDataItems` to discover the actual typed write objects.
 
 ---
 
@@ -566,6 +560,12 @@ Create a new document with index data and optional file streams.
 The request members are top-level; do not wrap them in `TheDocument`. For JSON uploads,
 `FileDataBase64JSON` contains base64 text. `FileData` is the JSON byte-array alternative.
 
+`WithAutoAppendMode: 0` uses the category default. Other known values are `2` append,
+`3` replace, `4` no check, `5` error, and `6` skip document. On craigdemo 35.0.3.0,
+category 56's default mode failed because its configured auto-append field was invalid;
+explicit mode `4` created the disposable test document. Mode `4` bypasses duplicate/append
+checks and should only be selected deliberately.
+
 **Important:** Keyword fields require `KeywordNo` (numeric ID), not the
 display string. Use `GetKeywordsByFieldNo` to resolve keyword strings to numbers
 (`GetDictionaryInfo` does not return per-field keyword lists).
@@ -910,6 +910,10 @@ Verified against a live tenant 2026-07-16: adding `"PermType": 8` to the request
 (seen in some client wrapper code) made no observable difference to the result â€” the
 plain `{"Flags": 0, "Type": 11}` body above is sufficient.
 
+On craigdemo Web API 35.0.3.0 (verified 2026-08-05), the plain request returned 32 items,
+while adding `"RoleAccessMask": 18446744073709551615` returned zero. Treat permission filters
+as opt-in; do not add a max-value role mask by default.
+
 ### GetUsersFromGroup
 
 ```json
@@ -987,32 +991,31 @@ Get workflow tasks. (**Note:** `GetMyTasks` does not exist on the live server â€
 use `ExecuteTaskInfoQuery` instead.)
 
 ```json
-// Request (empty = tasks for current user):
-{}
+// Request (current/default task view):
+{"QueryMode": 0, "ViewMode": 0, "MaxRows": 1000}
 
-// Request (tasks for a specific process):
-{"ProcessNo": 3}
+// Optional: request one task number
+{"QueryMode": 0, "ViewMode": 0, "MaxRows": 1, "TaskNo": 55123}
 
 // Response:
 {
-  "TaskInfos": [
+  "QueryResult": [
     {
       "TaskNo": 55123,
-      "TaskName": "Approve Invoice",
-      "ProcessName": "AP Approval",
-      "ProcessNo": 3,
       "DocNo": 265461,
-      "AssignedTo": "john.smith",
-      "CreatedDate": "/Date(1697760000000+0000)/",
+      "AssignedToName": "john.smith",
+      "StartDate": "/Date(1697760000000+0000)/",
       "DueDate": "/Date(1698364800000+0000)/",
-      "Exits": [
-        {"ExitNo": 1, "ExitName": "Approve"},
-        {"ExitNo": 2, "ExitName": "Reject"}
-      ]
+      "Subject": "Approve Invoice",
+      "Status": 0
     }
   ]
 }
 ```
+
+`QueryMode` and `ViewMode` are required data members on Web API 35.0.3.0; an empty `{}` body
+fails deserialization. The response root is `QueryResult`, not `TaskInfos`. Decision values for
+`CompleteTask` are workflow metadata and are not included as an `Exits` array here.
 
 ### CompleteTask
 
@@ -1198,7 +1201,10 @@ The full save operation uses the same optimistic-concurrency pattern as document
 
 `SaveCaseIndexDataQuick` uses the same outer members but only requires
 `IndexData.IndexDataItems`. These shapes are confirmed by generated REST help but still need a
-disposable live case fixture before production use.
+disposable live case fixture before production use. On craigdemo 35.0.3.0 (2026-08-05), quick
+save returned a generic `ServerError` for both partial and full-state items, and the full
+`SaveCaseIndexData` request returned the same error even with the timestamps from `CreateCase`.
+All disposable cases were deleted; treat both save operations as unresolved.
 
 ### CloseCase / ReopenCase / DeleteCase / RestoreDeletedCase
 

@@ -13,6 +13,7 @@ class DocumentationConsistencyTests(unittest.TestCase):
         cls.endpoints = (ROOT / "references" / "api_endpoints.md").read_text()
         cls.examples = (ROOT / "references" / "python_examples.md").read_text()
         cls.contracts = json.loads((ROOT / "references" / "operation_contracts.json").read_text())
+        cls.live = json.loads((ROOT / "tests" / "fixtures" / "live_craigdemo_2026-08-05.json").read_text())
 
     def test_no_sql_percent_wildcard_examples(self):
         generated_examples = "\n".join((self.endpoints, self.examples))
@@ -32,6 +33,9 @@ class DocumentationConsistencyTests(unittest.TestCase):
         workflow = self.examples.split("## Workflow Task Management", 1)[1]
         self.assertIn('"TaskDecision": task_decision', workflow)
         self.assertNotRegex(workflow, r'"SelectedExitNo"\s*:')
+        self.assertIn('"QueryMode": 0', workflow)
+        self.assertIn('result.get("QueryResult", [])', workflow)
+        self.assertNotIn('result.get("TaskInfos", [])', workflow)
 
     def test_all_rows_example_uses_explicit_int_max(self):
         section = self.examples.split("## Paginated Query (All Results)", 1)[1].split("## Get Category Info", 1)[0]
@@ -46,6 +50,11 @@ class DocumentationConsistencyTests(unittest.TestCase):
         self.assertEqual(operations["GetDocumentStream"]["method"], "POST")
         self.assertEqual(operations["GetSystemCustomerId"]["method"], "GET")
         self.assertEqual(operations["CompleteTask"]["required"], ["Comment", "TaskDecision", "TaskNo"])
+
+    def test_live_fixture_records_cleanup_and_server_scope(self):
+        self.assertEqual(self.live["service"]["service_version"], "35.0.3.0")
+        self.assertEqual(self.live["read_tests"]["max_rows"]["zero"], 500)
+        self.assertTrue(self.live["write_tests"]["cleanup_verified"]["all_unavailable_after_cleanup"])
 
 
 if __name__ == "__main__":

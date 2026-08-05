@@ -567,8 +567,13 @@ class ThereforeClient:
     def get_referenced_table_info(self, data_type_no: int) -> Dict[str, Any]:
         return self._post('GetReferencedTableInfo', {'DataTypeNo': data_type_no})
 
-    def get_objects(self, flags: int, obj_type: int, role_access_mask: int = 18446744073709551615) -> Dict[str, Any]:
-        return self._post('GetObjects', {'Flags': flags, 'Type': obj_type, 'RoleAccessMask': role_access_mask})
+    def get_objects(self, flags: int = 0, obj_type: int = 11, role_access_mask: Optional[int] = None, perm_type: Optional[int] = None) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {'Flags': int(flags), 'Type': int(obj_type)}
+        if role_access_mask is not None:
+            payload['RoleAccessMask'] = int(role_access_mask)
+        if perm_type is not None:
+            payload['PermType'] = int(perm_type)
+        return self._post('GetObjects', payload)
 
     def get_document_index_data(self, doc_no: int) -> Dict[str, Any]:
         return self._post('GetDocumentIndexData', {
@@ -701,6 +706,16 @@ class ThereforeClient:
 
     def execute_workflow_query_for_all(self, workflow_flags: int = 0, max_rows: int = 1000) -> Dict[str, Any]:
         return self._post('ExecuteWorkflowQueryForAll', {'WorkflowFlags': int(workflow_flags), 'MaxRows': int(max_rows)}, timeout_override=self.config.workflow_timeout_seconds, retry_timeout_override=self.config.workflow_retry_timeout_seconds, retry_count=self.config.workflow_retry_count)
+
+    def execute_task_info_query(self, query_mode: int = 0, view_mode: int = 0, max_rows: int = 1000, task_no: Optional[int] = None) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {
+            'QueryMode': int(query_mode),
+            'ViewMode': int(view_mode),
+            'MaxRows': int(max_rows),
+        }
+        if task_no is not None:
+            payload['TaskNo'] = int(task_no)
+        return self._post('ExecuteTaskInfoQuery', payload)
 
     def execute_workflow_query_for_process(self, process_no: int, workflow_flags: int = 0, max_rows: int = 1000) -> Dict[str, Any]:
         return self._post('ExecuteWorkflowQueryForProcess', {'ProcessNo': int(process_no), 'WorkflowFlags': int(workflow_flags), 'MaxRows': int(max_rows)}, timeout_override=self.config.workflow_timeout_seconds, retry_timeout_override=self.config.workflow_retry_timeout_seconds, retry_count=self.config.workflow_retry_count)

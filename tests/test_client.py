@@ -82,6 +82,16 @@ class ClientContractTests(unittest.TestCase):
         self.client.execute_users_query()
         self.assertEqual(self.client.calls[0], ("POST", "ExecuteUsersQuery", {"Flags": 4}))
 
+    def test_get_objects_does_not_apply_a_permission_mask_by_default(self):
+        self.client.get_objects()
+        self.client.get_objects(role_access_mask=123, perm_type=8)
+        self.assertEqual(self.client.calls[0], ("POST", "GetObjects", {"Flags": 0, "Type": 11}))
+        self.assertEqual(self.client.calls[1][2], {"Flags": 0, "Type": 11, "RoleAccessMask": 123, "PermType": 8})
+
+    def test_task_info_query_includes_required_modes(self):
+        self.client.execute_task_info_query(max_rows=50)
+        self.assertEqual(self.client.calls[0], ("POST", "ExecuteTaskInfoQuery", {"QueryMode": 0, "ViewMode": 0, "MaxRows": 50}))
+
     def test_stream_bytes_are_not_base64_decoded(self):
         self.client.responses = [{"FileData": [0, 1, 2, 255]}]
         self.assertEqual(self.client.get_document_stream(12), b"\x00\x01\x02\xff")

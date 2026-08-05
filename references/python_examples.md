@@ -608,6 +608,9 @@ result = client.create_document(
 new_doc_no = result["create_document"].get("DocNo")
 ```
 
+`with_auto_append_mode=0` uses the category default. Pass `4` only when you intentionally want
+to bypass auto-append/duplicate checks and create a new document.
+
 There is no verified SQL `WhereClause`/`IN` translation in this reference client. For bulk
 existence checks, query a real indexed category field with supported `Conditions`, or retrieve
 documents individually by `DocNo` when correctness matters more than request count.
@@ -946,18 +949,24 @@ Query, claim, and complete workflow tasks programmatically.
 
 ```python
 def get_my_tasks(client) -> list:
-    """Get workflow tasks assigned to the current user (ExecuteTaskInfoQuery)."""
-    result = client.post("ExecuteTaskInfoQuery", {})
-    return result.get("TaskInfos", [])
+    """Get workflow tasks from the current/default task view."""
+    result = client.post("ExecuteTaskInfoQuery", {
+        "QueryMode": 0,
+        "ViewMode": 0,
+        "MaxRows": 1000,
+    })
+    return result.get("QueryResult", [])
 
 
-def get_all_workflow_tasks(client, process_no: int = None) -> list:
-    """Get all workflow tasks, optionally filtered by process number."""
-    payload = {}
-    if process_no:
-        payload["ProcessNo"] = process_no
-    result = client.post("ExecuteTaskInfoQuery", payload)
-    return result.get("TaskInfos", [])
+def get_task_by_number(client, task_no: int) -> list:
+    """Request a specific task number."""
+    result = client.post("ExecuteTaskInfoQuery", {
+        "QueryMode": 0,
+        "ViewMode": 0,
+        "MaxRows": 1,
+        "TaskNo": task_no,
+    })
+    return result.get("QueryResult", [])
 
 
 def complete_task(client, task_no: int, task_decision: int,
@@ -990,11 +999,10 @@ print(f"Found {len(tasks)} workflow tasks")
 
 for task in tasks:
     task_no    = task.get("TaskNo")
-    task_name  = task.get("TaskName", "")
+    task_name  = task.get("Subject", "")
     doc_no     = task.get("DocNo")
-    process    = task.get("ProcessName", "")
 
-    print(f"  Task {task_no}: {task_name} | Process: {process} | DocNo: {doc_no}")
+    print(f"  Task {task_no}: {task_name} | DocNo: {doc_no}")
 
     # Get the document linked to this task
     if doc_no:
@@ -1007,20 +1015,18 @@ for task in tasks:
     # complete_task(client, task_no, task_decision=approved_value,
     #               comment="Auto-approved by batch")
 
-# Query all tasks for a specific workflow process:
-ap_tasks = get_all_workflow_tasks(client, process_no=3)
-print(f"AP workflow has {len(ap_tasks)} outstanding tasks")
+# Query one known task number:
+task_55123 = get_task_by_number(client, 55123)
 ```
 
 **TaskInfo fields:**
 | Field | Description |
 |-------|-------------|
 | `TaskNo` | Unique task identifier |
-| `TaskName` | Display name of the task step |
-| `ProcessName` | Name of the workflow process |
+| `Subject` | Task subject/display text |
 | `DocNo` | Document linked to this task (if any) |
-| `AssignedTo` | Username of the assigned user |
-| `CreatedDate` | When the task was created (WCF date string) |
+| `AssignedToName` | Assigned user or group display name |
+| `StartDate` | When the task started (WCF date string) |
 | `DueDate` | Task due date (WCF date string, may be null) |
 
 ---

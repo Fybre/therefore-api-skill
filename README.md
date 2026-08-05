@@ -13,6 +13,7 @@ comments, cases, workflows, and full-text search.
 - `references/python_examples.md` — raw REST and helper examples.
 - `references/therefore_client.py` — focused standard-library reference client.
 - `references/operation_contracts.json` — machine-readable contracts used by tests.
+- `references/live_validation.md` — redacted, server-versioned live verification results.
 - `references/powershell_reference.md` — PowerShell-specific patterns.
 - `scripts/example.py` — read-only connection and metadata smoke test.
 - `AUDIT.md` — function coverage, resolved findings, and remaining live-verification work.

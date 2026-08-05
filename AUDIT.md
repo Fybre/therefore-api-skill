@@ -38,11 +38,11 @@ generated REST operation catalogue at `therefore-mcp` commit
 |---|---|---|
 | F-01–F-06 | Resolved | Corrected examples and wrapper payloads; added regression coverage. |
 | F-07–F-10 | Resolved | Documented GET exceptions, canonicalized document/task contracts, and fixed nested multi-query merging. |
-| F-11 | Documentation resolved; live matrix pending | All local guidance now treats `0` as the 500-row default and uses `2147483647` explicitly for all rows. |
+| F-11 | Resolved | Craigdemo 35.0.3.0 confirmed omitted/`0` return 500 while explicit `501` returns 501. |
 | F-12–F-13 | Resolved | Safe hostname matching, pinned upstream references, focused-client ownership note, and structured `ThereforeAPIError`. |
-| F-14–F-15 | Resolved | Replaced placeholders, removed the fake asset, and added contract fixtures, 17 unit tests, and CI. |
+| F-14–F-15 | Resolved | Replaced placeholders, removed the fake asset, and added contract fixtures, 20 unit tests, and CI. |
 | F-16 | Partially resolved | Added README, contribution guide, and changelog. Licence selection and an initial release/tag require owner decisions. |
-| F-17–F-18 | Partially resolved | Added a machine-readable contract registry and redacted synthetic fixtures. Live fixtures still need server/version metadata. |
+| F-17–F-18 | Resolved for the tested surface | Added a contract registry plus redacted synthetic and live fixtures carrying server/version metadata and cleanup evidence. |
 | F-19 | Resolved | Local references are local paths; external references are pinned to commits. |
 | F-20 | Deferred | The skill remains long; splitting MCP/Formio material is a maintainability improvement, not a correctness blocker. |
 
@@ -181,16 +181,14 @@ verification; **gap** = name only or absent.
 
 ## Remaining live verification
 
-- Confirm `MaxRows` omitted/`0`/`500`/`2147483647` against a category containing more than
-  500 accessible documents and record the server version.
 - Capture a real multi-query result large enough to exercise `GetNextMultiQueryRows`, if the
   server ever sets `HasRemainingRows`.
-- Store redacted binary stream and typed index-data fixtures, including table and multiple
-  keyword fields.
+- Extend typed index-data fixtures to include table and multiple-keyword fields.
 - Exercise successful check-in with replacement content.
 - Exercise `CompleteTask` using a disposable workflow and record valid `TaskDecision` values.
-- Exercise case save/link/unlink/close/reopen/delete/restore with disposable cases and verify
-  every mutation through a subsequent read.
+- Resolve the generic errors from both case index-save endpoints and create a disposable linked
+  category document before retesting `LinkCaseToDocument` read-back.
+- Validate a positive full-text hit on a known indexed document.
 - Choose a licence and create the first version tag/release.
 
 ## Suggested first GitHub issues

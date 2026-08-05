@@ -383,6 +383,10 @@ Create the document with validated index data and optional file streams.
 
 `CreateDocument` fields are top-level request members; there is no `TheDocument` wrapper.
 For JSON uploads, put base64 text in `FileDataBase64JSON`. `FileData` is the byte-array form.
+`WithAutoAppendMode: 0` uses the category default; it is not synonymous with "always insert."
+Known values are `2` append, `3` replace, `4` no check, `5` error, and `6` skip document.
+Use mode `4` only when the integration intentionally requires a new document regardless of
+the category's auto-append configuration.
 
 ## GetCategoryInfo
 
@@ -426,6 +430,7 @@ Returns `Name`, `CategoryFields[]` (each with `Caption`, `FieldNo`, type info).
 | `ExecuteUsersQuery` | List all users | `{"Flags": 4}` — see pitfall #19 |
 | `GetObjects` | List users + groups combined | `{"Flags": 0, "Type": 11}` |
 | `GetUsersFromGroup` | Members of a group | `{"GroupName": "..."}` or `{"GroupId": N}` — see pitfall #21 |
+| `ExecuteTaskInfoQuery` | Query workflow tasks | `QueryMode`, `ViewMode`, `MaxRows` required — see pitfall #32 |
 | `GetCategoriesTree` | Full category/folder tree | see pitfall #22 for real response shape |
 | `GetDocumentCheckoutStatus` | Check-out state of a doc | `DocNo` |
 | `CheckOutDocument` | Lock a doc for editing | `DocNo` |
@@ -644,6 +649,7 @@ Fetch these on demand for deeper detail:
 | ThereforeClient source (Python MCP client) | https://raw.githubusercontent.com/Fybre/therefore-mcp/f32d54f489c73f12025ad19bb03a5be017f49a6a/src/therefore_client.py |
 | MCP server source (tool definitions, dispatch, ask_therefore_expert router, therefore_connect) | https://raw.githubusercontent.com/Fybre/therefore-mcp/f32d54f489c73f12025ad19bb03a5be017f49a6a/src/mcp_server.py |
 | PowerShell patterns (reserved vars, async pagination, SecureString) | `references/powershell_reference.md` |
+| Redacted live validation results | `references/live_validation.md` |
 | JavaScript/Formio reference (browser library, window.Therefore) | https://raw.githubusercontent.com/Fybre/Therefore-Formio-Javascript/7d6dbba46e462231be73f3a83a6acf930d24b73c/docs/javascript_formio_reference.md |
 | JavaScript/Formio examples (complete Formio custom action patterns) | https://raw.githubusercontent.com/Fybre/Therefore-Formio-Javascript/7d6dbba46e462231be73f3a83a6acf930d24b73c/examples.js |
 
@@ -831,6 +837,20 @@ fetch the JavaScript/Formio reference URL above.
     you know contains the term, don't assume the query is wrong — the document may
     simply not be in the full-text index yet (failed/pending indexing), which needs
     checking from the Therefore admin console, not the API.
+
+31. **Do not add a max `RoleAccessMask` to `GetObjects` by default** → On craigdemo Web API
+    35.0.3.0, `{"Flags":0,"Type":11}` returned 32 objects, while adding
+    `RoleAccessMask: 18446744073709551615` returned zero. Permission filters are opt-in.
+
+32. **`ExecuteTaskInfoQuery` requires `QueryMode` and `ViewMode`** → An empty `{}` body fails
+    deserialization on Web API 35.0.3.0. Use at least
+    `{"QueryMode":0,"ViewMode":0,"MaxRows":1000}`. Results are under `QueryResult`, not
+    `TaskInfos`.
+
+33. **`WithAutoAppendMode: 0` uses the category default** → A broken category auto-append
+    configuration can make `CreateDocument` fail even when preprocessing succeeds. Mode `4`
+    means "No check" and created a new disposable document successfully on craigdemo, but it
+    bypasses duplicate/append rules and must be chosen deliberately.
 
 ## Keeping Knowledge in Sync
 

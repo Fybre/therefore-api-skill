@@ -49,6 +49,12 @@
       "response_root": "Results",
       "mutability": "read"
     },
+    "ExecuteDependentFieldsQuery": {
+      "method": "POST",
+      "required": ["CaseDefinitionNo", "CategoryNo", "FieldNo", "IndexDataItems", "MaxRows", "SaveMode"],
+      "response_root": "QueryResult",
+      "mutability": "read"
+    },
     "ExecuteUsersQuery": {
       "method": "POST",
       "required": ["Flags"],
@@ -67,6 +73,14 @@
       "response_root": "TreeItems",
       "mutability": "read"
     },
+    "FillDependentFields": {
+      "method": "POST",
+      "required": ["DoCalculateFields", "ExcludeRedundant", "IndexDataItems", "IsAccessMaskNeeded", "PrimaryFieldNo"],
+      "context_members": ["CaseDefinitionNo", "CategoryNo", "DocNo"],
+      "response_root": "UpdatedIndexDataItems",
+      "mutability": "read",
+      "note": "Specify exactly one context member. DocNo and CategoryNo are mutually exclusive; zero-valued placeholder members are not equivalent to omission."
+    },
     "GetDocumentStream": {
       "method": "POST",
       "required": ["DocNo", "StreamNo"],
@@ -80,6 +94,11 @@
       "response_root": "ItemList",
       "mutability": "read",
       "note": "Do not send the uint64-max RoleAccessMask by default; it returned zero items on craigdemo 35.0.3.0 while the plain request returned 32."
+    },
+    "GetReferencedTableInfo": {
+      "method": "POST",
+      "required": ["DataTypeNo"],
+      "mutability": "read"
     },
     "GetSystemCustomerId": {
       "method": "GET",

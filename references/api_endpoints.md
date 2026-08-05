@@ -1046,6 +1046,58 @@ distinct from an ordinary document/category. Discover case definitions via
 `GetCategoriesTree` — nodes with `ItemType: 3` (see pitfall #22); their `ItemNo` is the
 `CaseDefNo`.
 
+### Referenced-table fields and dependent values
+
+A referenced-table field stores the referenced row's ID. Its typed index-data wrapper follows
+the underlying type of the referenced table's index column, and the value must identify a row
+returned as valid in the current context.
+
+Use this sequence:
+
+1. Read the field's `TypeNo` from `GetCaseDefinition` or `GetCategoryInfo`.
+2. Call `GetReferencedTableInfo {"DataTypeNo": TypeNo}`. Its `IndexColumn` identifies the
+   stored ID column; match that column in `Columns[]` to determine its scalar type.
+3. Call `ExecuteDependentFieldsQuery` to list valid rows for the target field and the current
+   index state.
+4. Submit the selected ID to `FillDependentFields`, using exactly one context member.
+5. Save `UpdatedIndexDataItems`, which includes both the primary reference and populated
+   dependent fields.
+
+Case-context example:
+
+```json
+// ExecuteDependentFieldsQuery
+{
+  "CaseDefinitionNo": 11,
+  "CategoryNo": 0,
+  "FieldNo": 3742,
+  "IndexDataItems": [],
+  "MaxRows": 500,
+  "SaveMode": false
+}
+```
+
+The response is query-shaped: `QueryResult.Columns[]` describes the reference and dependent
+fields, while each `QueryResult.ResultRows[].FieldValues[]` is a selectable row using the same
+positional mapping. On craigdemo, this returned ID `"1"` and its dependent Start Date.
+
+```json
+// FillDependentFields after selecting ID "1"
+{
+  "CaseDefinitionNo": 11,
+  "IndexDataItems": [
+    {"StringIndexData": {"FieldNo": 3742, "DataValue": "1"}}
+  ],
+  "PrimaryFieldNo": 3742,
+  "ExcludeRedundant": false,
+  "IsAccessMaskNeeded": false,
+  "DoCalculateFields": true
+}
+```
+
+For a case, omit `DocNo` and `CategoryNo` entirely. Do not send zero placeholders:
+`FillDependentFields` treats `DocNo` and `CategoryNo` as mutually exclusive members.
+
 Full lifecycle verified against a live tenant 2026-07-16 (created and deleted a test case).
 
 ### GetCaseDefinition
@@ -1106,8 +1158,8 @@ non-query call — then fetch each document individually, or fall back to filter
 ```
 
 Only `CaseDefNo` is required to create an empty case — index field values can be set
-afterward via `SaveCaseIndexData`/`SaveCaseIndexDataQuick` (not yet verified — presumed to
-mirror `UpdateDocument2`'s `IndexData`/`LastChangeTime` pattern).
+afterward via `SaveCaseIndexData`/`SaveCaseIndexDataQuick`. Both save paths are live-verified;
+for referenced fields, first resolve a valid ID and dependent values using the workflow above.
 
 ### GetCase
 
@@ -1200,11 +1252,13 @@ The full save operation uses the same optimistic-concurrency pattern as document
 ```
 
 `SaveCaseIndexDataQuick` uses the same outer members but only requires
-`IndexData.IndexDataItems`. These shapes are confirmed by generated REST help but still need a
-disposable live case fixture before production use. On craigdemo 35.0.3.0 (2026-08-05), quick
-save returned a generic `ServerError` for both partial and full-state items, and the full
-`SaveCaseIndexData` request returned the same error even with the timestamps from `CreateCase`.
-All disposable cases were deleted; treat both save operations as unresolved.
+`IndexData.IndexDataItems`. Both operations were verified on craigdemo 35.0.3.0 (2026-08-05)
+using a valid value returned by `ExecuteDependentFieldsQuery` and the dependent items returned
+by `FillDependentFields`. Quick save and full optimistic-concurrency save both returned 200,
+and `GetCase` read back the reference and dependent date correctly.
+
+Earlier attempts with an arbitrary marker returned a generic `ServerError`; that marker was
+not a valid referenced-table ID and did not indicate an endpoint or concurrency defect.
 
 ### CloseCase / ReopenCase / DeleteCase / RestoreDeletedCase
 

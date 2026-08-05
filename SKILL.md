@@ -412,6 +412,9 @@ Returns `Name`, `CategoryFields[]` (each with `Caption`, `FieldNo`, type info).
 | `GetNextSingleQueryRows` | Paginate | `QueryID`, `RowBlockSize` |
 | `ReleaseSingleQuery` | Free query | `QueryID` |
 | `GetDocumentIndexData` | Full doc fields | `DocNo` |
+| `GetReferencedTableInfo` | Referenced-table metadata and ID column | `DataTypeNo` |
+| `ExecuteDependentFieldsQuery` | List valid reference choices in context | `FieldNo`, current `IndexDataItems`, category/case context |
+| `FillDependentFields` | Resolve fields populated by a selected reference | `PrimaryFieldNo`, `IndexDataItems`, exactly one context |
 | `GetDocument` | Doc metadata + optional index data | `DocNo`, `IsIndexDataValuesNeeded` |
 | `PreprocessIndexData` | Validate/default index data | `CategoryNo`, `IndexData.IndexDataItems` |
 | `EvaluateConditionalProperties` | Check field rules | `CategoryNo`, `IndexDataItems` |
@@ -851,6 +854,22 @@ fetch the JavaScript/Formio reference URL above.
     configuration can make `CreateDocument` fail even when preprocessing succeeds. Mode `4`
     means "No check" and created a new disposable document successfully on craigdemo, but it
     bypasses duplicate/append rules and must be chosen deliberately.
+
+34. **Referenced-table fields store the referenced row ID, not free text** → Determine the
+    data type of the referenced table's ID field and use the corresponding typed index-data
+    object. The value must identify an existing permitted row in the referenced table. For
+    example, a string-backed reference uses `StringIndexData`, but only a valid stored string
+    ID can be saved; a reference backed by an integer ID uses `IntIndexData` instead.
+
+    Use `GetReferencedTableInfo` with the field's `TypeNo` to find `IndexColumn` and its
+    column type. Use `ExecuteDependentFieldsQuery` to enumerate values valid for the current
+    category/case and current index values. After selecting a returned ID, pass it to
+    `FillDependentFields`; save the returned `UpdatedIndexDataItems`, not just the primary ID.
+
+35. **`FillDependentFields` context members must be omitted, not zero-filled** → Specify
+    exactly one of `DocNo`, `CategoryNo`, or `CaseDefinitionNo`. Sending `DocNo: 0` alongside
+    `CategoryNo: 0` fails because `DocNo` and `CategoryNo` are mutually exclusive. For case
+    index data, send `CaseDefinitionNo` and omit both document and category members.
 
 ## Keeping Knowledge in Sync
 

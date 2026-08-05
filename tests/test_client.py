@@ -78,6 +78,26 @@ class ClientContractTests(unittest.TestCase):
         self.assertEqual(self.client.calls[2][2], {"CaseNoA": 92, "CaseNoB": 93})
         self.assertEqual(self.client.calls[3][2], {"CaseNo": 92, "RestoreRelatedDocuments": True})
 
+    def test_referenced_table_dependent_field_payloads(self):
+        items = [{"StringIndexData": {"FieldNo": 3742, "DataValue": "1"}}]
+        self.client.get_referenced_table_info(172)
+        self.client.execute_dependent_fields_query(3742, [], case_definition_no=11, max_rows=20)
+        self.client.fill_dependent_fields(items, 3742, case_definition_no=11)
+        self.assertEqual(self.client.calls[0][2], {"DataTypeNo": 172})
+        self.assertEqual(self.client.calls[1][2], {
+            "CaseDefinitionNo": 11, "CategoryNo": 0, "FieldNo": 3742,
+            "IndexDataItems": [], "MaxRows": 20, "SaveMode": False,
+        })
+        self.assertNotIn("DocNo", self.client.calls[2][2])
+        self.assertNotIn("CategoryNo", self.client.calls[2][2])
+        self.assertEqual(self.client.calls[2][2]["CaseDefinitionNo"], 11)
+
+    def test_fill_dependent_fields_requires_one_context(self):
+        with self.assertRaises(ValueError):
+            self.client.fill_dependent_fields([], 1)
+        with self.assertRaises(ValueError):
+            self.client.fill_dependent_fields([], 1, doc_no=1, category_no=2)
+
     def test_list_users_defaults_to_verified_flags(self):
         self.client.execute_users_query()
         self.assertEqual(self.client.calls[0], ("POST", "ExecuteUsersQuery", {"Flags": 4}))

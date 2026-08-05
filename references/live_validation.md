@@ -41,9 +41,20 @@ Case definition 11 (`Referenced Case Test`) was used.
 - Create, read, history, close, reopen, delete, restore, and final deletion all passed.
 - `SaveCaseIndexDataQuick` returned a generic `ServerError` for partial and full-state payloads.
   `SaveCaseIndexData` with creation timestamps also returned `ServerError`.
+- The attempted ID value was an arbitrary marker, but the field is backed by a referenced
+  table. Referenced fields must store an existing valid row ID using the referenced table ID
+  field's underlying scalar type. Consequently, these failures did not demonstrate a save or
+  concurrency defect and were superseded by the valid-reference follow-up below.
+- Follow-up validation resolved field `3742` through referenced data type `172`
+  (`ReferencedDataTest`, table `TheCat153`, string index column `ID`).
+  `ExecuteDependentFieldsQuery` returned valid ID `"1"`; `FillDependentFields` returned that
+  ID plus Start Date `2025-07-06` and the empty End Date. Both `SaveCaseIndexDataQuick` and
+  `SaveCaseIndexData` then returned 200 and were verified through `GetCase` read-back.
+- `FillDependentFields` succeeded with `CaseDefinitionNo` alone. Including zero-valued
+  `DocNo`/`CategoryNo` placeholders failed; context members must be omitted unless selected.
 - A case-document link was not attempted because disposable document creation in the linked
   category failed before a case or link was created. Existing documents were not modified.
-- Cases 96–99 were created by these tests and confirmed unavailable after cleanup.
+- Cases 96–100 were created by these tests and confirmed unavailable after cleanup.
 
 ### Safety and cleanup
 

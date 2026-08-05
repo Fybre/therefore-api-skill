@@ -308,6 +308,56 @@ class ThereforeClient:
             'ChangedFieldNos': changed_field_nos or [],
         })
 
+    def execute_dependent_fields_query(
+        self,
+        field_no: int,
+        index_data_items: List[Dict[str, Any]],
+        case_definition_no: int = 0,
+        category_no: int = 0,
+        max_rows: int = 500,
+        save_mode: bool = False,
+    ) -> Dict[str, Any]:
+        """Return valid referenced values for a field in the current index-data context."""
+        return self._post('ExecuteDependentFieldsQuery', {
+            'CaseDefinitionNo': int(case_definition_no),
+            'CategoryNo': int(category_no),
+            'FieldNo': int(field_no),
+            'IndexDataItems': index_data_items,
+            'MaxRows': int(max_rows),
+            'SaveMode': bool(save_mode),
+        })
+
+    def fill_dependent_fields(
+        self,
+        index_data_items: List[Dict[str, Any]],
+        primary_field_no: int,
+        *,
+        doc_no: Optional[int] = None,
+        case_definition_no: Optional[int] = None,
+        category_no: Optional[int] = None,
+        exclude_redundant: bool = False,
+        include_access_mask: bool = False,
+        do_calculate_fields: bool = True,
+    ) -> Dict[str, Any]:
+        """Resolve dependent values in exactly one document, case, or category context."""
+        contexts = [doc_no is not None, case_definition_no is not None, category_no is not None]
+        if sum(contexts) != 1:
+            raise ValueError('Specify exactly one of doc_no, case_definition_no, or category_no')
+        payload: Dict[str, Any] = {
+            'IndexDataItems': index_data_items,
+            'ExcludeRedundant': bool(exclude_redundant),
+            'PrimaryFieldNo': int(primary_field_no),
+            'IsAccessMaskNeeded': bool(include_access_mask),
+            'DoCalculateFields': bool(do_calculate_fields),
+        }
+        if doc_no is not None:
+            payload['DocNo'] = int(doc_no)
+        elif case_definition_no is not None:
+            payload['CaseDefinitionNo'] = int(case_definition_no)
+        else:
+            payload['CategoryNo'] = int(category_no)
+        return self._post('FillDependentFields', payload)
+
     def create_document(
         self,
         category_no: int,

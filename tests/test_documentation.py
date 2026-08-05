@@ -50,10 +50,14 @@ class DocumentationConsistencyTests(unittest.TestCase):
         self.assertEqual(operations["GetDocumentStream"]["method"], "POST")
         self.assertEqual(operations["GetSystemCustomerId"]["method"], "GET")
         self.assertEqual(operations["CompleteTask"]["required"], ["Comment", "TaskDecision", "TaskNo"])
+        self.assertEqual(operations["ExecuteDependentFieldsQuery"]["response_root"], "QueryResult")
+        self.assertIn("CaseDefinitionNo", operations["FillDependentFields"]["context_members"])
 
     def test_live_fixture_records_cleanup_and_server_scope(self):
         self.assertEqual(self.live["service"]["service_version"], "35.0.3.0")
         self.assertEqual(self.live["read_tests"]["max_rows"]["zero"], 500)
+        self.assertTrue(self.live["write_tests"]["case_index_save"]["valid_reference_workflow"]["quick_save_read_back"])
+        self.assertFalse(self.live["write_tests"]["case_index_save"]["retest_required"])
         self.assertTrue(self.live["write_tests"]["cleanup_verified"]["all_unavailable_after_cleanup"])
 
 

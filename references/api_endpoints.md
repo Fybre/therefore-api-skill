@@ -1,7 +1,16 @@
 # Therefore REST API — Endpoint Reference
 
-All endpoints are POST requests to `{base_url}/restun/{EndpointName}`.
+Named service operations are POST requests to `{base_url}/restun/{EndpointName}`.
 Content-Type: `application/json; charset=utf-8`
+
+The route-style utilities below are GET exceptions and take values in the URL path:
+
+- `GetSystemCustomerId`
+- `GetDocumentStreamChunks/{docNo}/{versionNo}/{streamNo}`
+- `GetUploadedEFormFile/{tenant}/{fileId}`
+- `Confirm2FACode/...`
+
+`GetDomainInfo` and `GetDocumentStream` are POST operations despite their names.
 
 ## Table of Contents
 
@@ -220,7 +229,7 @@ Search documents in a category with field conditions (synchronous).
 - Exact match: `"67307PAOP"` (just the value)
 - Full expression: `"Order_No = '12345'"` (field name + operator + quoted value)
 - Greater than: `">= 1000"`
-- Wildcard: `"LIKE Acme%"`
+- Wildcard: `"LIKE Acme*"` (`*`, not SQL `%`)
 - Between: `">= 2024-01-01 AND <= 2024-12-31"`
 - Null check: `"IS NULL"` or `"IS NOT NULL"`
 - With timezone: add `"TimeZone": "UTC"` to the condition object
@@ -420,12 +429,13 @@ Get all index field values for a specific document.
         "TableIndexData": {
           "FieldNo": 200,
           "FieldName": "LineItems",
-          "Rows": [
+          "DataValue": [
             {
-              "Values": [
-                {"StringValue": "Item A"},
-                {"IntValue": 5},
-                {"MoneyValue": 29.99}
+              "RowNo": 1,
+              "DataRowItems": [
+                {"StringIndexData": {"FieldNo": 201, "FieldName": "Item", "DataValue": "Item A"}},
+                {"IntIndexData": {"FieldNo": 202, "FieldName": "Quantity", "DataValue": 5}},
+                {"MoneyIndexData": {"FieldNo": 203, "FieldName": "Price", "DataValue": 29.99}}
               ]
             }
           ]
@@ -446,8 +456,8 @@ Get all index field values for a specific document.
 | `DateTimeIndexData` | DateTime | `DataValue` (WCF date string) |
 | `LogicalIndexData` | Boolean | `DataValue` (bool) |
 | `SingleKeywordData` | Dropdown | `KeywordNo` (int) + `DataValue` (string) |
-| `MultipleKeywordData` | Multi-select | `Keywords[]` with `KeywordNo` + `DataValue` |
-| `TableIndexData` | Table | `Rows[]` → `Values[]` with typed entries |
+| `MultipleKeywordData` | Multi-select | `DataValue[]` plus parallel `KeywordNos[]` |
+| `TableIndexData` | Table | `DataValue[]` rows → `DataRowItems[]` with typed entries |
 
 ### GetDocument
 
@@ -524,32 +534,37 @@ Create a new document with index data and optional file streams.
 ```json
 // Request:
 {
-  "TheDocument": {
-    "IndexDataItems": [
-      {
-        "StringIndexData": {
-          "FieldNo": 101,
-          "DataValue": "NEW-001"
-        }
-      },
-      {
-        "SingleKeywordData": {
-          "FieldNo": 105,
-          "KeywordNo": 42
-        }
+  "CategoryNo": 8,
+  "IndexDataItems": [
+    {
+      "StringIndexData": {
+        "FieldNo": 101,
+        "DataValue": "NEW-001"
       }
-    ],
-    "CategoryNo": 8,
-    "Streams": [
-      {
-        "StreamNo": 0,
-        "FileName": "invoice.pdf",
-        "FileData": "<base64-encoded-content>"
+    },
+    {
+      "SingleKeywordData": {
+        "FieldNo": 105,
+        "KeywordNo": 42
       }
-    ]
-  }
+    }
+  ],
+  "Streams": [
+    {
+      "StreamNo": 0,
+      "FileName": "invoice.pdf",
+      "FileDataBase64JSON": "<base64-encoded-content>",
+      "NewStreamInsertMode": 0
+    }
+  ],
+  "DoFillDependentFields": true,
+  "WithAutoAppendMode": 0,
+  "CheckInComments": "Created via API"
 }
 ```
+
+The request members are top-level; do not wrap them in `TheDocument`. For JSON uploads,
+`FileDataBase64JSON` contains base64 text. `FileData` is the JSON byte-array alternative.
 
 **Important:** Keyword fields require `KeywordNo` (numeric ID), not the
 display string. Use `GetKeywordsByFieldNo` to resolve keyword strings to numbers
@@ -683,14 +698,16 @@ Checking in requires the document to actually be "open" (i.e. have new content s
 e.g. via streams) — calling it with just `{"DocNo": ...}` and no changes fails:
 
 ```json
-// Request that FAILS with no changes supplied:
-{"DocNo": 265461}
+// Request shape (fails unless replacement content has already been opened/uploaded):
+{"DocNo": 265461, "CheckInComment": "Replaced source file"}
 // -> 500 InternalError: "The document file is not open."
 ```
 
-The exact shape of a successful `CheckInDocument` payload (streams/index data) has not yet
-been verified against a live tenant — treat as TODO before relying on it. If you don't need
-to replace the file content, `UndoCheckOutDocument` is the safe way to release a checkout.
+The generated REST contract contains only `DocNo` and optional singular `CheckInComment`;
+`VersionNo` and plural `CheckInComments` are not request members. A successful call still
+depends on server-side checkout/open-file state established by the content replacement flow,
+which has not yet been verified against a live tenant. If you don't need to replace the file
+content, `UndoCheckOutDocument` is the safe way to release a checkout.
 
 #### UndoCheckOutDocument
 
@@ -999,20 +1016,22 @@ use `ExecuteTaskInfoQuery` instead.)
 
 ### CompleteTask
 
-Complete a workflow task (advance to next step using a named exit/transition).
+Complete a workflow task using the task decision value exposed by the workflow.
 
 ```json
 // Request:
 {
   "TaskNo": 55123,
-  "SelectedExitNo": 1,
+  "TaskDecision": 1,
   "Comment": "Approved — within budget"
 }
 
 // Response: (empty on success)
 ```
 
-Use `ExecuteTaskInfoQuery` to get `TaskNo` and valid `ExitNo` values before calling.
+Use `ExecuteTaskInfoQuery`/task metadata to get `TaskNo` and the valid decision values before
+calling. The REST contract uses `TaskDecision`; `SelectedExitNo`, `UserDecision`, and
+`WorkflowInstanceToken` are not members of `CompleteTaskParams`.
 
 ---
 
@@ -1157,7 +1176,29 @@ supports pagination for long-running cases, not yet verified).
 
 `LinkCaseToDocument` takes `{"CaseNo": N, "DocNo": N}` and returns `200 {}`, but see the
 caveat under `GetCaseDocuments` above — the observable effect wasn't confirmed. `LinkCases`
-and `UnlinkCases` (presumably linking one case to another) were not tested.
+and `UnlinkCases` use `{"CaseNoA": N, "CaseNoB": N}`. Their request schemas come from the
+generated REST help; their live side effects have not yet been verified.
+
+### SaveCaseIndexData / SaveCaseIndexDataQuick
+
+The full save operation uses the same optimistic-concurrency pattern as document updates:
+
+```json
+{
+  "CaseNo": 92,
+  "CheckInComments": "Updated via API",
+  "IndexData": {
+    "IndexDataItems": [...],
+    "LastChangeTime": "/Date(...)/",
+    "LastChangeTimeISO8601": "2026-07-16T11:44:43.1320000Z",
+    "DoFillDependentFields": true
+  }
+}
+```
+
+`SaveCaseIndexDataQuick` uses the same outer members but only requires
+`IndexData.IndexDataItems`. These shapes are confirmed by generated REST help but still need a
+disposable live case fixture before production use.
 
 ### CloseCase / ReopenCase / DeleteCase / RestoreDeletedCase
 
@@ -1173,8 +1214,10 @@ Not all tested individually, but `DeleteCase` is confirmed:
 
 After deletion, `GetCase`/`GetCaseDocuments`/etc. against that `CaseNo` return a 500
 `"The case has already been deleted from Therefore"` rather than `ObjectDoesNotExist`,
-distinguishing "deleted" from "never existed". `RestoreDeletedCase` presumably reverses
-this (not tested — no need arose since the delete confirmation was sufficient).
+distinguishing "deleted" from "never existed". `CloseCase`, `ReopenCase`, and `DeleteCase`
+all take `{"CaseNo": N}`. `RestoreDeletedCase` takes
+`{"CaseNo": N, "RestoreRelatedDocuments": false}`. The restore request schema is confirmed
+by generated REST help; its live effect remains unverified.
 
 ---
 

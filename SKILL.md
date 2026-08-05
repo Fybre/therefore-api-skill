@@ -20,8 +20,11 @@ description: |
 
 ## Architecture
 
-Therefore exposes a WCF-based REST API under `/restun/`. Every operation is a **POST**
-with a JSON body — there are no GET endpoints.
+Therefore exposes a WCF-based REST API under `/restun/`. The named service operations are
+**POST** requests with JSON bodies. A small set of route-style utility endpoints use **GET**,
+including `GetSystemCustomerId`, `GetDocumentStreamChunks/{docNo}/{versionNo}/{streamNo}`,
+`GetUploadedEFormFile/{tenant}/{fileId}`, and `Confirm2FACode/...`. Do not infer the verb from
+an operation name; use POST unless the route is explicitly documented as a GET exception.
 
 **URL pattern (Therefore Online / cloud):**
 ```
@@ -57,7 +60,7 @@ session.headers.update({'Content-Type': 'application/json; charset=utf-8'})
 
 # Therefore Online: add tenant header
 parsed = urlparse(base_url)
-if 'thereforeonline.com' in (parsed.hostname or ''):
+if (parsed.hostname or '').lower().endswith('.thereforeonline.com'):
     tenant = parsed.hostname.split('.')[0]
     session.headers.update({'TenantName': tenant})
 ```
@@ -284,7 +287,13 @@ def get_field_value(index_data, field_name):
     for item in items:
         for type_key, data in item.items():
             if isinstance(data, dict) and data.get("FieldName") == field_name:
-                return str(data.get("DataValue", ""))
+                if type_key == "MultipleKeywordData":
+                    return data.get("DataValue", data.get("Keywords", data.get("KeywordNos", [])))
+                if type_key == "TableIndexData":
+                    return data.get("DataValue", data.get("Rows", []))
+                if type_key == "SingleKeywordData" and "DataValue" not in data:
+                    return data.get("KeywordNo")
+                return data.get("DataValue")
     return None
 ```
 
@@ -296,12 +305,13 @@ Table fields in `GetDocumentIndexData` return structured data:
   "TableIndexData": {
     "FieldNo": 200,
     "FieldName": "LineItems",
-    "Rows": [
+    "DataValue": [
       {
-        "Values": [
-          {"StringValue": "Item A"},
-          {"IntValue": 5},
-          {"MoneyValue": 29.99}
+        "RowNo": 1,
+        "DataRowItems": [
+          {"StringIndexData": {"FieldNo": 201, "FieldName": "Item", "DataValue": "Item A"}},
+          {"IntIndexData": {"FieldNo": 202, "FieldName": "Quantity", "DataValue": 5}},
+          {"MoneyIndexData": {"FieldNo": 203, "FieldName": "Price", "DataValue": 29.99}}
         ]
       }
     ]
@@ -355,19 +365,24 @@ Create the document with validated index data and optional file streams.
 **POST** `/restun/CreateDocument`
 ```json
 {
-  "TheDocument": {
-    "IndexDataItems": [...],
-    "CategoryNo": 8,
-    "Streams": [
-      {
-        "StreamNo": 0,
-        "FileName": "invoice.pdf",
-        "FileData": "<base64-encoded-content>"
-      }
-    ]
-  }
+  "CategoryNo": 8,
+  "IndexDataItems": [...],
+  "Streams": [
+    {
+      "StreamNo": 0,
+      "FileName": "invoice.pdf",
+      "FileDataBase64JSON": "<base64-encoded-content>",
+      "NewStreamInsertMode": 0
+    }
+  ],
+  "DoFillDependentFields": true,
+  "WithAutoAppendMode": 0,
+  "CheckInComments": "Created via API"
 }
 ```
+
+`CreateDocument` fields are top-level request members; there is no `TheDocument` wrapper.
+For JSON uploads, put base64 text in `FileDataBase64JSON`. `FileData` is the byte-array form.
 
 ## GetCategoryInfo
 
@@ -501,8 +516,8 @@ session.headers.update({
     "TenantName": "{tenant}"
 })
 
-def post(endpoint, body={}):
-    return session.post(f"{BASE_URL}/{endpoint}", json=body).json()
+def post(endpoint, body=None):
+    return session.post(f"{BASE_URL}/{endpoint}", json=body or {}).json()
 
 # 1. All users
 users = post("ExecuteUsersQuery", {"Flags": 4}).get("Users", [])
@@ -623,14 +638,14 @@ Fetch these on demand for deeper detail:
 
 | Resource | URL |
 |----------|-----|
-| Full endpoint schemas (all operations, request/response) | https://raw.githubusercontent.com/Fybre/therefore-api-skill/main/references/api_endpoints.md |
-| Python examples (raw REST + ThereforeClient wrapper) | https://raw.githubusercontent.com/Fybre/therefore-mcp/main/docs/PYTHON_EXAMPLES.md |
-| Python quick reference (field types, patterns, ~850 tokens) | https://raw.githubusercontent.com/Fybre/therefore-mcp/main/docs/PYTHON_QUICK_REFERENCE.md |
-| ThereforeClient source (Python MCP client) | https://raw.githubusercontent.com/Fybre/therefore-mcp/main/src/therefore_client.py |
-| MCP server source (tool definitions, dispatch, ask_therefore_expert router, therefore_connect) | https://raw.githubusercontent.com/Fybre/therefore-mcp/main/src/mcp_server.py |
-| PowerShell patterns (reserved vars, async pagination, SecureString) | https://raw.githubusercontent.com/Fybre/therefore-api-skill/main/references/powershell_reference.md |
-| JavaScript/Formio reference (browser library, window.Therefore) | https://raw.githubusercontent.com/Fybre/Therefore-Formio-Javascript/main/docs/javascript_formio_reference.md |
-| JavaScript/Formio examples (complete Formio custom action patterns) | https://raw.githubusercontent.com/Fybre/Therefore-Formio-Javascript/main/examples.js |
+| Full endpoint schemas (all operations, request/response) | `references/api_endpoints.md` |
+| Python examples (raw REST + ThereforeClient wrapper) | https://raw.githubusercontent.com/Fybre/therefore-mcp/f32d54f489c73f12025ad19bb03a5be017f49a6a/docs/PYTHON_EXAMPLES.md |
+| Python quick reference (field types, patterns, ~850 tokens) | https://raw.githubusercontent.com/Fybre/therefore-mcp/f32d54f489c73f12025ad19bb03a5be017f49a6a/docs/PYTHON_QUICK_REFERENCE.md |
+| ThereforeClient source (Python MCP client) | https://raw.githubusercontent.com/Fybre/therefore-mcp/f32d54f489c73f12025ad19bb03a5be017f49a6a/src/therefore_client.py |
+| MCP server source (tool definitions, dispatch, ask_therefore_expert router, therefore_connect) | https://raw.githubusercontent.com/Fybre/therefore-mcp/f32d54f489c73f12025ad19bb03a5be017f49a6a/src/mcp_server.py |
+| PowerShell patterns (reserved vars, async pagination, SecureString) | `references/powershell_reference.md` |
+| JavaScript/Formio reference (browser library, window.Therefore) | https://raw.githubusercontent.com/Fybre/Therefore-Formio-Javascript/7d6dbba46e462231be73f3a83a6acf930d24b73c/docs/javascript_formio_reference.md |
+| JavaScript/Formio examples (complete Formio custom action patterns) | https://raw.githubusercontent.com/Fybre/Therefore-Formio-Javascript/7d6dbba46e462231be73f3a83a6acf930d24b73c/examples.js |
 
 ## JavaScript / Formio Integration
 
@@ -678,7 +693,11 @@ fetch the JavaScript/Formio reference URL above.
 2. **Using `= value` in Condition** → 500: "Syntax error near = value." Use the
    raw value for exact match — no `=` prefix.
 
-3. **Everything is POST** → No GET endpoints exist. Using GET gives 405/404.
+3. **Named service operations are POST** → Route-style utilities are the exception. Confirmed
+   GET routes include `GetSystemCustomerId`, `GetDocumentStreamChunks/...`,
+   `GetUploadedEFormFile/...`, and `Confirm2FACode/...`. In particular, `GetDomainInfo` and
+   `GetDocumentStream` are POST operations; do not route every endpoint beginning with `Get`
+   through HTTP GET.
 
 4. **Parameter is `DocNo` not `DocId`** → Consistent across all endpoints.
 
@@ -722,10 +741,12 @@ fetch the JavaScript/Formio reference URL above.
 15. **`GetDictionaryInfo` → use `GetKeywordsByFieldNo` instead** → The correct endpoint
     for resolving keyword values by field is `GetKeywordsByFieldNo` (pass `FieldNo`).
 
-16. **The MCP client uses `urllib`, not `requests`** → `therefore_client.py` uses stdlib
-    `urllib.request` only. The `ThereforeConfig` dataclass controls auth via `auth_method`
-    (`'basic'` or `'bearer'`), `tenant_name` header, and timeout settings.
-    See `references/therefore_client.py` for the full implementation.
+16. **The standalone reference client uses `urllib`, not `requests`** →
+    `references/therefore_client.py` uses stdlib `urllib.request` only. Its
+    `ThereforeConfig` dataclass controls auth via `auth_method` (`'basic'` or `'bearer'`),
+    tenant headers, and timeout settings. It is a focused, tested reference client, not a
+    vendored copy of the complete `therefore-mcp` implementation; use the pinned upstream
+    source in Extended References for the MCP client's full surface.
 
 17. **Wildcard is `*` not `%`** → Using `%` in `LIKE` conditions returns 0 results
     silently — no error. The correct wildcard character is `*`. E.g. `"LIKE Acme*"`,

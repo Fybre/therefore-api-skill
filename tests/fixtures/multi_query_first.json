@@ -1,0 +1,13 @@
+{
+  "QueryId": 77,
+  "HasRemainingRows": true,
+  "QueryResults": [
+    {
+      "QueryResult": {
+        "CategoryNo": 8,
+        "Columns": [{"ColName": "Reference"}],
+        "ResultRows": [{"DocNo": 1, "IndexValues": ["A"]}]
+      }
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "HasRemainingRows": false,
+  "QueryResults": [
+    {
+      "QueryResult": {
+        "CategoryNo": 8,
+        "ResultRows": [{"DocNo": 2, "IndexValues": ["B"]}]
+      }
+    }
+  ]
+}

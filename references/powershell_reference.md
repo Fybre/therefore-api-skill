@@ -92,7 +92,7 @@ $startResult = Invoke-ThereforePost -Endpoint "ExecuteAsyncSingleQuery" -Body @{
         CategoryNo              = $CategoryNo
         Conditions              = @()
         SelectedFieldsNoOrNames = @("Reference", "Entity")
-        MaxRows                 = 0        # 0 = unlimited
+        MaxRows                 = 2147483647  # explicit "all rows" value; 0 defaults to 500
         RowBlockSize            = 200
         Mode                    = 0
     }

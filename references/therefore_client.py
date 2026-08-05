@@ -1,9 +1,16 @@
 #!/usr/bin/env python3
+"""Focused standalone REST reference client for the contracts documented in this skill.
+
+This is not a vendored copy of the complete therefore-mcp client. Keep shared operation
+payloads aligned with references/operation_contracts.json and test them in tests/test_client.py.
+"""
+
 import base64
 import json
 import os
 import re
 import ssl
+import urllib.parse
 import urllib.request
 import urllib.error
 import socket
@@ -12,6 +19,31 @@ import time as _time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+
+
+class ThereforeAPIError(Exception):
+    """HTTP failure returned by Therefore, preserving its structured WSError payload."""
+
+    def __init__(
+        self,
+        endpoint: str,
+        status: int,
+        error_data: Optional[Dict[str, Any]] = None,
+        response_body: str = '',
+    ) -> None:
+        self.endpoint = endpoint
+        self.status = status
+        self.error_data = error_data or {}
+        self.response_body = response_body
+        message = (
+            self.error_data.get('ErrorMessage')
+            or self.error_data.get('Message')
+            or response_body
+            or f'HTTP {status}'
+        )
+        code = self.error_data.get('ErrorCodeString') or self.error_data.get('ErrorCode')
+        prefix = f'[{code}] ' if code is not None else ''
+        super().__init__(f'{prefix}{message} (HTTP {status} from {endpoint})')
 
 
 @dataclass
@@ -73,8 +105,13 @@ class ThereforeClient:
             if not self.config.password:
                 raise ValueError('Bearer auth requires password (token)')
             headers['Authorization'] = f'Bearer {self.config.password}'
-        if self.config.tenant_name:
-            headers['TenantName'] = self.config.tenant_name
+        tenant_name = self.config.tenant_name
+        if not tenant_name:
+            hostname = (urllib.parse.urlparse(self.base_url).hostname or '').lower()
+            if hostname.endswith('.thereforeonline.com'):
+                tenant_name = hostname.split('.')[0]
+        if tenant_name:
+            headers['TenantName'] = tenant_name
         return headers
 
     @staticmethod
@@ -141,17 +178,22 @@ class ThereforeClient:
                 except Exception:
                     body = ''
                 detail = ''
+                error_data: Dict[str, Any] = {}
                 if body:
                     try:
                         err_json = json.loads(body)
-                        detail = err_json.get('Message') or err_json.get('message') or err_json.get('error') or body
+                        error_data = err_json.get('WSError') or err_json
+                        detail = (
+                            error_data.get('ErrorMessage')
+                            or error_data.get('Message')
+                            or error_data.get('message')
+                            or error_data.get('error')
+                            or body
+                        )
                     except (json.JSONDecodeError, AttributeError):
                         detail = body
                 self._log(f" <- {exc.code} {detail!r} ({len(body)} bytes, {elapsed_ms:.0f}ms)")
-                msg = f"HTTP {exc.code} from {path}"
-                if detail:
-                    msg += f": {detail}"
-                raise type(exc)(exc.url, exc.code, msg, exc.headers, None) from None
+                raise ThereforeAPIError(path, exc.code, error_data, body) from None
             except Exception as exc:
                 elapsed_ms = (_time.monotonic() - t0) * 1000
                 self._log(f" <- ERROR {type(exc).__name__}: {exc} ({elapsed_ms:.0f}ms)")
@@ -183,17 +225,22 @@ class ThereforeClient:
             except Exception:
                 body = ''
             detail = ''
+            error_data: Dict[str, Any] = {}
             if body:
                 try:
                     err_json = json.loads(body)
-                    detail = err_json.get('Message') or err_json.get('message') or err_json.get('error') or body
+                    error_data = err_json.get('WSError') or err_json
+                    detail = (
+                        error_data.get('ErrorMessage')
+                        or error_data.get('Message')
+                        or error_data.get('message')
+                        or error_data.get('error')
+                        or body
+                    )
                 except (json.JSONDecodeError, AttributeError):
                     detail = body
             self._log(f" <- {exc.code} {detail!r} ({len(body)} bytes, {elapsed_ms:.0f}ms)")
-            msg = f"HTTP {exc.code} from {path}"
-            if detail:
-                msg += f": {detail}"
-            raise type(exc)(exc.url, exc.code, msg, exc.headers, None) from None
+            raise ThereforeAPIError(path, exc.code, error_data, body) from None
 
     def get_category_info(self, category_no: int) -> Dict[str, Any]:
         return self._post('GetCategoryInfo', {
@@ -326,31 +373,47 @@ class ThereforeClient:
     def delete_document(self, doc_no: int) -> Dict[str, Any]:
         return self._post('DeleteDocument', {'DocNo': doc_no})
 
-    def check_out_document(self, doc_no: int, version_no: int = 0) -> Dict[str, Any]:
-        return self._post('CheckOutDocument', {'DocNo': doc_no, 'VersionNo': version_no})
+    def check_out_document(self, doc_no: int) -> Dict[str, Any]:
+        return self._post('CheckOutDocument', {'DocNo': doc_no})
 
-    def check_in_document(self, doc_no: int, check_in_comments: Optional[str] = None, version_no: int = 0) -> Dict[str, Any]:
-        payload = {'DocNo': doc_no, 'VersionNo': version_no}
-        if check_in_comments is not None:
-            payload['CheckInComments'] = check_in_comments
+    def check_in_document(self, doc_no: int, check_in_comment: Optional[str] = None) -> Dict[str, Any]:
+        """Finish an existing checkout after replacement content has been opened/uploaded."""
+        payload = {'DocNo': doc_no}
+        if check_in_comment is not None:
+            payload['CheckInComment'] = check_in_comment
         return self._post('CheckInDocument', payload)
 
-    def undo_check_out_document(self, doc_no: int, version_no: int = 0) -> Dict[str, Any]:
-        return self._post('UndoCheckOutDocument', {'DocNo': doc_no, 'VersionNo': version_no})
+    def undo_check_out_document(self, doc_no: int) -> Dict[str, Any]:
+        return self._post('UndoCheckOutDocument', {'DocNo': doc_no})
 
-    def add_comment(self, doc_no: int, comment_text: str, version_no: int = 0) -> Dict[str, Any]:
-        return self._post('AddComment', {'DocNo': doc_no, 'VersionNo': version_no, 'CommentText': comment_text})
+    def add_comment(self, doc_no: int, comment_text: str, obj_type: int = 2) -> Dict[str, Any]:
+        return self._post('AddComment', {
+            'ObjNo': doc_no,
+            'ObjType': obj_type,
+            'CommentText': comment_text,
+        })
 
-    def get_comments(self, doc_no: int, version_no: int = 0) -> Dict[str, Any]:
-        return self._post('LoadComments', {'DocNo': doc_no, 'VersionNo': version_no})  # GetComments does not exist; correct endpoint is LoadComments
+    def edit_comment(self, doc_no: int, comment_id: str, comment_text: str, obj_type: int = 2) -> Dict[str, Any]:
+        return self._post('EditComment', {
+            'ObjNo': doc_no,
+            'ObjType': obj_type,
+            'ID': comment_id,
+            'CommentText': comment_text,
+        })
 
-    def complete_task(self, workflow_instance_token: str, task_no: int, user_decision: Optional[str] = None, index_data_items: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
-        payload = {'WorkflowInstanceToken': workflow_instance_token, 'TaskNo': task_no}
-        if user_decision is not None:
-            payload['UserDecision'] = user_decision
-        if index_data_items is not None:
-            payload['IndexDataItems'] = index_data_items
-        return self._post('CompleteTask', payload)
+    def get_comments(self, doc_no: int, obj_type: int = 2, max_count: int = 100) -> Dict[str, Any]:
+        return self._post('LoadComments', {
+            'ObjNo': doc_no,
+            'ObjType': obj_type,
+            'MaxCount': max_count,
+        })
+
+    def complete_task(self, task_no: int, task_decision: int, comment: str = '') -> Dict[str, Any]:
+        return self._post('CompleteTask', {
+            'TaskNo': task_no,
+            'TaskDecision': task_decision,
+            'Comment': comment,
+        })
 
     def claim_workflow_instance(self, workflow_instance_token: str, task_no: Optional[int] = None) -> Dict[str, Any]:
         payload = {'WorkflowInstanceToken': workflow_instance_token}
@@ -370,8 +433,15 @@ class ThereforeClient:
             payload['TaskNo'] = task_no
         return self._post('DelegateWorkflowInstance', payload)
 
+    def get_case_definition(self, case_definition_no: int) -> Dict[str, Any]:
+        return self._post('GetCaseDefinition', {
+            'CaseDefinitionNo': int(case_definition_no),
+            'IsAccessMaskNeeded': False,
+            'IsSearchFieldOrderNeeded': False,
+        })
+
     def create_case(self, case_definition_no: int, index_data_items: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
-        payload = {'CaseDefinitionNo': case_definition_no}
+        payload = {'CaseDefNo': case_definition_no}
         if index_data_items is not None:
             payload['IndexDataItems'] = index_data_items
         return self._post('CreateCase', payload)
@@ -384,6 +454,58 @@ class ThereforeClient:
 
     def get_case_history(self, case_no: int) -> Dict[str, Any]:
         return self._post('GetCaseHistory', {'CaseNo': case_no})
+
+    def save_case_index_data(
+        self,
+        case_no: int,
+        index_data_items: List[Dict[str, Any]],
+        last_change_time: str,
+        last_change_time_iso: Optional[str] = None,
+        check_in_comments: str = '',
+    ) -> Dict[str, Any]:
+        index_data: Dict[str, Any] = {
+            'IndexDataItems': index_data_items,
+            'LastChangeTime': last_change_time,
+            'DoFillDependentFields': True,
+        }
+        if last_change_time_iso:
+            index_data['LastChangeTimeISO8601'] = last_change_time_iso
+        return self._post('SaveCaseIndexData', {
+            'CaseNo': int(case_no),
+            'CheckInComments': check_in_comments,
+            'IndexData': index_data,
+        })
+
+    def save_case_index_data_quick(self, case_no: int, index_data_items: List[Dict[str, Any]], check_in_comments: str = '') -> Dict[str, Any]:
+        return self._post('SaveCaseIndexDataQuick', {
+            'CaseNo': int(case_no),
+            'CheckInComments': check_in_comments,
+            'IndexData': {'IndexDataItems': index_data_items},
+        })
+
+    def link_case_to_document(self, case_no: int, doc_no: int) -> Dict[str, Any]:
+        return self._post('LinkCaseToDocument', {'CaseNo': int(case_no), 'DocNo': int(doc_no)})
+
+    def link_cases(self, case_no_a: int, case_no_b: int) -> Dict[str, Any]:
+        return self._post('LinkCases', {'CaseNoA': int(case_no_a), 'CaseNoB': int(case_no_b)})
+
+    def unlink_cases(self, case_no_a: int, case_no_b: int) -> Dict[str, Any]:
+        return self._post('UnlinkCases', {'CaseNoA': int(case_no_a), 'CaseNoB': int(case_no_b)})
+
+    def close_case(self, case_no: int) -> Dict[str, Any]:
+        return self._post('CloseCase', {'CaseNo': int(case_no)})
+
+    def reopen_case(self, case_no: int) -> Dict[str, Any]:
+        return self._post('ReopenCase', {'CaseNo': int(case_no)})
+
+    def delete_case(self, case_no: int) -> Dict[str, Any]:
+        return self._post('DeleteCase', {'CaseNo': int(case_no)})
+
+    def restore_deleted_case(self, case_no: int, restore_related_documents: bool = False) -> Dict[str, Any]:
+        return self._post('RestoreDeletedCase', {
+            'CaseNo': int(case_no),
+            'RestoreRelatedDocuments': bool(restore_related_documents),
+        })
 
     def create_user(self, user_name: str, full_name: str, email: Optional[str] = None, password: Optional[str] = None, domain_name: Optional[str] = None) -> Dict[str, Any]:
         payload = {'UserName': user_name, 'FullName': full_name}
@@ -492,8 +614,10 @@ class ThereforeClient:
     def get_objects_list(self, load_items_list: List[Dict[str, Any]]) -> Dict[str, Any]:
         return self._post('GetObjectsList', {'LoadItemsList': load_items_list})
 
-    def execute_users_query(self, query: str, domain_names: Optional[List[str]] = None, flags: int = 5) -> Dict[str, Any]:
-        payload: Dict[str, Any] = {'Query': query, 'Flags': int(flags)}
+    def execute_users_query(self, query: Optional[str] = None, domain_names: Optional[List[str]] = None, flags: int = 4) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {'Flags': int(flags)}
+        if query is not None:
+            payload['Query'] = query
         if domain_names is not None:
             payload['DomainNames'] = domain_names
         return self._post('ExecuteUsersQuery', payload)
@@ -707,19 +831,47 @@ class ThereforeClient:
         }
         return self._post('ExecuteFullTextQuery', payload)
 
-    def call_endpoint(self, endpoint: str, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """Call an arbitrary Therefore WebAPI endpoint. Auto-detects GET vs POST."""
+    def get_document_stream(
+        self,
+        doc_no: int,
+        stream_no: int = 0,
+        version_no: int = 0,
+        retrieve_reason: str = '',
+    ) -> bytes:
+        """Download a stream through the POST operation and return its raw bytes."""
+        result = self._post('GetDocumentStream', {
+            'DocNo': int(doc_no),
+            'StreamNo': int(stream_no),
+            'VersionNo': int(version_no),
+            'RetrieveReason': retrieve_reason,
+        })
+        file_data = result.get('FileData')
+        if file_data is not None:
+            return bytes(file_data)
+        encoded = result.get('FileDataBase64JSON')
+        return base64.b64decode(encoded) if encoded else b''
+
+    def call_endpoint(
+        self,
+        endpoint: str,
+        payload: Optional[Dict[str, Any]] = None,
+        http_method: str = 'POST',
+    ) -> Dict[str, Any]:
+        """Call an arbitrary endpoint; POST is the safe default for named operations."""
         if not endpoint:
             raise ValueError('endpoint is required')
         path = str(endpoint).strip()
         if path.startswith(self.base_url):
             path = path[len(self.base_url):]
         path = path.lstrip('/')
-        get_endpoints = {'GetSystemCustomerId', 'GetDomainInfo', 'GetDocumentStream', 'GetDocumentThumbnail', 'GetUploadedEFormFile', 'Confirm2FACode'}
-        is_get_endpoint = any(path.lower() == ep.lower() for ep in get_endpoints)
-        if is_get_endpoint:
+        method = http_method.upper()
+        if method == 'GET':
+            if payload:
+                path = f"{path}?{urllib.parse.urlencode(payload, doseq=True)}"
             return self._get(path)
-        return self._post(path, payload or {})
+        if method == 'POST':
+            return self._post(path, payload or {})
+        raise ValueError("http_method must be 'POST' or 'GET'")
 
     def execute_statistics_query(self, query_type: int, restrict_to_obj_no: Optional[int] = None, restrict_to_user: Optional[bool] = None) -> Dict[str, Any]:
         payload: Dict[str, Any] = {'QueryType': int(query_type)}
@@ -742,7 +894,7 @@ class ThereforeClient:
         return self._post('ReleaseMultiQuery', {'QueryID': query_id})
 
     def execute_async_multi_query_all(self, queries: List[Dict[str, Any]], full_text: Optional[str] = None, row_block_size: int = 1000, max_rows: int = 2147483647) -> Dict[str, Any]:
-        """Execute multiple category queries in a single async request, fetching all pages."""
+        """Execute multiple category queries, preserving each QueryResult wrapper."""
         queries_payload = []
         for q in queries:
             qp = dict(q)
@@ -761,28 +913,52 @@ class ThereforeClient:
             batches += 1
             has_remaining = bool(first.get('HasRemainingRows'))
             results = list(first.get('QueryResults') or [])
-            def group_key(res):
-                return (res.get('CaseDefinitionNo'), res.get('CategoryNo'), res.get('ProcessNo'))
-            merged_map: Dict = {}
-            for res in results:
-                key = group_key(res)
-                merged = dict(res)
-                merged['ResultRows'] = list(res.get('ResultRows') or [])
-                merged_map[key] = merged
+
+            def query_result_of(item: Dict[str, Any]) -> Dict[str, Any]:
+                nested = item.get('QueryResult')
+                return nested if isinstance(nested, dict) else item
+
+            def group_key(item: Dict[str, Any]):
+                result = query_result_of(item)
+                return (
+                    result.get('CaseDefinitionNo'),
+                    result.get('CategoryNo'),
+                    result.get('ProcessNo'),
+                )
+
+            def with_rows(item: Dict[str, Any]) -> Dict[str, Any]:
+                result = dict(query_result_of(item))
+                result['ResultRows'] = list(result.get('ResultRows') or [])
+                if isinstance(item.get('QueryResult'), dict):
+                    wrapped = dict(item)
+                    wrapped['QueryResult'] = result
+                    return wrapped
+                return result
+
+            merged_map: Dict = {group_key(item): with_rows(item) for item in results}
             while has_remaining and query_id is not None:
                 next_resp = self.get_next_multi_query_rows(int(query_id), int(row_block_size))
                 batches += 1
                 has_remaining = bool(next_resp.get('HasRemainingRows'))
-                for res in (next_resp.get('QueryResults') or []):
-                    key = group_key(res)
+                for item in (next_resp.get('QueryResults') or []):
+                    key = group_key(item)
                     if key not in merged_map:
-                        merged = dict(res)
-                        merged['ResultRows'] = list(res.get('ResultRows') or [])
-                        merged_map[key] = merged
+                        merged_map[key] = with_rows(item)
                     else:
-                        merged_map[key]['ResultRows'].extend(res.get('ResultRows') or [])
+                        existing_result = query_result_of(merged_map[key])
+                        next_result = query_result_of(item)
+                        existing_result['ResultRows'].extend(next_result.get('ResultRows') or [])
             merged_results = list(merged_map.values())
-            result_payload = {'QueryId': query_id, 'QueryResults': merged_results, 'HasRemainingRows': False, 'Batches': batches, 'TotalRows': [len(r.get('ResultRows') or []) for r in merged_results]}
+            result_payload = {
+                'QueryId': query_id,
+                'QueryResults': merged_results,
+                'HasRemainingRows': False,
+                'Batches': batches,
+                'TotalRows': [
+                    len(query_result_of(item).get('ResultRows') or [])
+                    for item in merged_results
+                ],
+            }
         finally:
             if query_id is not None:
                 try:

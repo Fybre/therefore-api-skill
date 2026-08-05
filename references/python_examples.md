@@ -8,7 +8,7 @@ All examples use `requests` with a session configured per the SKILL.md auth sect
 ```python
 import requests
 from urllib.parse import urlparse
-from typing import List, Dict, Optional
+from typing import Any, List, Dict, Optional
 
 class ThereforeClient:
     """Minimal Therefore REST API client."""
@@ -27,7 +27,7 @@ class ThereforeClient:
         # Auto-detect tenant for Therefore Online
         if not tenant:
             parsed = urlparse(base_url)
-            if 'thereforeonline.com' in (parsed.hostname or ''):
+            if (parsed.hostname or '').lower().endswith('.thereforeonline.com'):
                 tenant = parsed.hostname.split('.')[0]
         if tenant:
             self.session.headers.update({'TenantName': tenant})
@@ -181,24 +181,35 @@ def get_index_data(client, doc_no: int) -> Dict:
     return client.post("GetDocumentIndexData", {"DocNo": doc_no})
 
 
-def get_field_value(index_data: dict, field_name: str) -> Optional[str]:
+def _typed_index_value(type_key: str, data: dict) -> Any:
+    """Preserve scalar, keyword, multi-keyword, and table values without flattening."""
+    if type_key == "MultipleKeywordData":
+        return data.get("DataValue", data.get("Keywords", data.get("KeywordNos", [])))
+    if type_key == "TableIndexData":
+        return data.get("DataValue", data.get("Rows", []))
+    if type_key == "SingleKeywordData" and "DataValue" not in data:
+        return data.get("KeywordNo")
+    return data.get("DataValue")
+
+
+def get_field_value(index_data: dict, field_name: str) -> Any:
     """Extract a named field from GetDocumentIndexData response."""
     items = index_data.get("IndexData", {}).get("IndexDataItems", [])
     for item in items:
         for type_key, data in item.items():
             if isinstance(data, dict) and data.get("FieldName") == field_name:
-                return str(data.get("DataValue", ""))
+                return _typed_index_value(type_key, data)
     return None
 
 
-def get_all_fields(index_data: dict) -> Dict[str, str]:
-    """Extract all fields as a flat dict from GetDocumentIndexData response."""
+def get_all_fields(index_data: dict) -> Dict[str, Any]:
+    """Extract fields while preserving complex keyword and table values."""
     fields = {}
     items = index_data.get("IndexData", {}).get("IndexDataItems", [])
     for item in items:
         for type_key, data in item.items():
             if isinstance(data, dict) and "FieldName" in data:
-                fields[data["FieldName"]] = str(data.get("DataValue", ""))
+                fields[data["FieldName"]] = _typed_index_value(type_key, data)
     return fields
 
 
@@ -221,7 +232,7 @@ def search_all(client, category_no: int, conditions: List[Dict],
         "Query": {
             "CategoryNo": category_no,
             "Conditions": conditions,
-            "MaxRows": 0,
+            "MaxRows": 2147483647,
             "RowBlockSize": row_block_size,
             "Mode": 0
         }
@@ -309,7 +320,7 @@ if "Invoice_No" not in fields:
 # Search with multiple conditions (AND logic):
 conditions = [
     {"FieldNoOrName": "Status", "Condition": "Approved"},
-    {"FieldNoOrName": "Supplier_Name", "Condition": "LIKE Acme%"},
+    {"FieldNoOrName": "Supplier_Name", "Condition": "LIKE Acme*"},
     {"FieldNoOrName": "Amount", "Condition": ">= 500"}
 ]
 
@@ -380,21 +391,23 @@ def create_document(client, category_no: int, index_items: List[Dict],
 
     # Step 4: Create document
     doc_payload = {
-        "TheDocument": {
-            "IndexDataItems": processed_items,
-            "CategoryNo": category_no,
-            "Streams": []
-        }
+        "CategoryNo": category_no,
+        "IndexDataItems": processed_items,
+        "Streams": [],
+        "DoFillDependentFields": True,
+        "WithAutoAppendMode": 0,
+        "CheckInComments": "Created via API",
     }
 
     # Attach file if provided
     if file_path:
         with open(file_path, "rb") as f:
             file_data = base64.b64encode(f.read()).decode("utf-8")
-        doc_payload["TheDocument"]["Streams"].append({
+        doc_payload["Streams"].append({
             "StreamNo": 0,
             "FileName": file_path.split("/")[-1],
-            "FileData": file_data
+            "FileDataBase64JSON": file_data,
+            "NewStreamInsertMode": 0,
         })
 
     result = client.post("CreateDocument", doc_payload)
@@ -478,24 +491,25 @@ if __name__ == '__main__':
 
 ---
 
-## MCP ThereforeClient Wrapper (src/therefore_client.py)
+## Standalone ThereforeClient reference
 
-The `therefore-mcp` project ships a `ThereforeClient` wrapper class in `src/therefore_client.py`
-that provides a higher-level Python API over the raw REST calls. If this library is available,
-use it instead of writing raw `requests` calls.
+This repository includes `references/therefore_client.py`, a focused standard-library client
+whose payloads match the contracts in `operation_contracts.json`. The complete MCP client is a
+separate, pinned external reference; do not assume the two have identical constructors or tool
+surface.
 
 ### Setup
 
 ```python
-import sys
-sys.path.insert(0, 'src')
-from therefore_client import ThereforeClient
+from therefore_client import ThereforeClient, ThereforeConfig
 
-client = ThereforeClient(
+client = ThereforeClient(ThereforeConfig(
     base_url="https://demo.thereforeonline.com/theservice/v0001/restun",
+    auth_method="basic",
     username="your_username",
-    password="your_password"
-)
+    password="your_password",
+    tenant_name="demo",
+))
 ```
 
 Note: The wrapper takes the full `/restun` URL, unlike the raw client which appends it automatically.
@@ -504,7 +518,8 @@ Note: The wrapper takes the full `/restun` URL, unlike the raw client which appe
 
 | Wrapper Method | Underlying REST Endpoint |
 |----------------|--------------------------|
-| `client.get_document(doc_no, include_index_data)` | `GetDocumentIndexData` / `GetDocument` |
+| `client.get_document(doc_no, include_index_data)` | `GetDocument` |
+| `client.get_document_index_data(doc_no)` | `GetDocumentIndexData` |
 | `client.get_category_info(category_no)` | `GetCategoryInfo` |
 | `client.execute_single_query(query)` | `ExecuteSingleQuery` |
 | `client.create_document(category_no, streams, index_data_items, ...)` | `CreateDocument` |
@@ -523,50 +538,29 @@ def document_exists(client, doc_no):
         raise
 ```
 
-### Query with WhereClause (Wrapper Style)
+### Query through the client
 
-The wrapper's `execute_single_query` accepts a `WhereClause` using SQL-style
-column name syntax `[ColName] = 'value'` rather than the raw API's `Conditions` array:
+`execute_single_query` accepts the inner `Query` object and builds the endpoint wrapper. It uses
+the same `Conditions` contract as the raw REST endpoint; it does not translate SQL-style
+`WhereClause` strings.
 
 ```python
-# Wrapper style — uses WhereClause with [ColName] syntax:
 query = {
     "CategoryNo": category_no,
-    "WhereClause": f"[InvoiceNumber] = '{invoice_no}'",
-    "MaxRows": 1
+    "Conditions": [{"FieldNoOrName": "InvoiceNumber", "Condition": invoice_no}],
+    "MaxRows": 1,
+    "RowBlockSize": 200,
+    "Mode": 0,
 }
 result = client.execute_single_query(query)
-rows = result.get("IndexDataRows", [])
-
-# Raw REST style (equivalent) — uses Conditions array:
-query = {
-    "Query": {
-        "CategoryNo": category_no,
-        "Conditions": [{"FieldNoOrName": "InvoiceNumber", "Condition": invoice_no}],
-        "MaxRows": 1,
-        "RowBlockSize": 200,
-        "Mode": 0
-    }
-}
-result = client.post("ExecuteSingleQuery", query)
 rows = result.get("QueryResult", {}).get("ResultRows", [])
 ```
 
-### Index Data Structure (Wrapper vs Raw)
+### Index data structure
 
-The wrapper uses a different index data structure for creating documents
-than the raw API response format:
+The client passes the API's typed `IndexDataItems` unchanged:
 
 ```python
-# WRAPPER style — for create_document():
-index_data_items = [
-    {"Name": "Invoice_No",   "Value": {"StringIndexData": {"Value": "INV-001"}}},
-    {"Name": "Invoice_Date", "Value": {"DateIndexData":   {"Value": "2024-02-17"}}},
-    {"Name": "Amount",       "Value": {"MoneyIndexData":  {"Value": 1500.00}}},
-    {"Name": "Status",       "Value": {"KeywordIndexData": {"KeywordName": "Approved"}}}
-]
-
-# RAW API style — for CreateDocument endpoint:
 index_data_items = [
     {"StringIndexData": {"FieldNo": 101, "DataValue": "INV-001"}},
     {"DateIndexData":   {"FieldNo": 106, "DataValue": "2024-02-17"}},
@@ -575,24 +569,10 @@ index_data_items = [
 ]
 ```
 
-**Key difference:** The wrapper uses `Name` (field name string) and `Value.TypeData.Value`,
-while the raw API uses typed root keys with `FieldNo`/`FieldName` and `DataValue`.
-
-### Reading Index Data (Wrapper vs Raw)
+### Reading index data
 
 ```python
-# WRAPPER — get_document returns IndexDataDef + IndexDataItems paired:
-doc = client.get_document(doc_no, include_index_data=True)
-for field_def, value_item in zip(doc['IndexDataDef'], doc['IndexData']['IndexDataItems']):
-    field_name = field_def['Name']
-    field_type = field_def['TypeNo']
-    if field_type == 0:   # String
-        value = value_item.get('Value', {}).get('StringIndexData', {}).get('Value')
-    elif field_type == 6: # Keyword
-        value = value_item.get('Value', {}).get('KeywordIndexData', {}).get('KeywordName')
-
-# RAW API — GetDocumentIndexData returns typed items with FieldName:
-index_data = client.post("GetDocumentIndexData", {"DocNo": doc_no})
+index_data = client.get_document_index_data(doc_no)
 for item in index_data["IndexData"]["IndexDataItems"]:
     for type_key, data in item.items():
         if isinstance(data, dict):
@@ -600,7 +580,7 @@ for item in index_data["IndexData"]["IndexDataItems"]:
             value = data.get("DataValue")  # or KeywordNo for SingleKeywordData
 ```
 
-### Create Document with File (Wrapper Style)
+### Create document with a file
 
 ```python
 import base64
@@ -622,35 +602,15 @@ streams = [ThereforeClient.make_stream_from_text("note.txt", "Document content h
 result = client.create_document(
     category_no=8,
     streams=streams,
-    index_data_items=index_data_items,  # wrapper-style items (see above)
+    index_data_items=index_data_items,
     check_in_comments="Imported from XML batch"
 )
-new_doc_no = result.get("DocNo")
+new_doc_no = result["create_document"].get("DocNo")
 ```
 
-### Batch Document Check (Efficient)
-
-Query multiple DocNos in a single API call rather than one call per document:
-
-```python
-def batch_check_documents(client, category_no, doc_nos):
-    """Check which doc numbers exist — one query instead of N API calls."""
-    if not doc_nos:
-        return {}
-    doc_nos_str = ','.join(str(n) for n in doc_nos)
-    query = {
-        "CategoryNo": category_no,  # Required
-        "WhereClause": f"[DocNo] IN ({doc_nos_str})",
-        "MaxRows": len(doc_nos)
-    }
-    result = client.execute_single_query(query)
-    rows = result.get("IndexDataRows", [])
-    return {row["IndexValues"][0]: row for row in rows}
-
-# Usage:
-found = batch_check_documents(client, category_no=8, doc_nos=list(range(10000, 11000)))
-print(f"Found {len(found)} out of 1000 documents")
-```
+There is no verified SQL `WhereClause`/`IN` translation in this reference client. For bulk
+existence checks, query a real indexed category field with supported `Conditions`, or retrieve
+documents individually by `DocNo` when correctness matters more than request count.
 
 ---
 
@@ -783,16 +743,22 @@ new_doc_no = create_document(client, category_no=8, index_items=index_items,
 Retrieve the binary file content for a document stream (e.g. the attached PDF).
 
 ```python
-import base64
-
 def get_document_stream(client, doc_no: int, stream_no: int = 0) -> bytes:
     """Download a document stream and return raw bytes."""
     result = client.post("GetDocumentStream", {
         "DocNo": doc_no,
         "StreamNo": stream_no
     })
-    b64 = result.get("FileDataBase64JSON") or result.get("FileData", "")
-    return base64.b64decode(b64) if b64 else b""
+    file_data = result.get("FileData")
+    if file_data is not None:
+        return bytes(file_data)
+
+    # Some endpoints return this alternative only when base64 JSON was requested.
+    encoded = result.get("FileDataBase64JSON")
+    if encoded:
+        import base64
+        return base64.b64decode(encoded)
+    return b""
 
 
 def save_document_stream(client, doc_no: int, output_path: str,
@@ -812,8 +778,13 @@ save_document_stream(client, doc_no=265461, output_path="/tmp/invoice_265461.pdf
 raw = get_document_stream(client, doc_no=265461)
 print(f"File size: {len(raw):,} bytes")
 
-# To find out which streams exist, check GetDocumentIndexData:
-index_data = get_index_data(client, doc_no=265461)
+# To find out which streams exist, request stream metadata from GetDocument:
+document = client.post("GetDocument", {
+    "DocNo": 265461,
+    "IsStreamsInfoNeeded": True,
+    "IsStreamsInfoAndDataNeeded": False,
+    "IsIndexDataValuesNeeded": False,
+})
 # stream_no=0 is the primary stream; additional streams have higher numbers
 ```
 
@@ -989,15 +960,14 @@ def get_all_workflow_tasks(client, process_no: int = None) -> list:
     return result.get("TaskInfos", [])
 
 
-def complete_task(client, task_no: int, exit_no: int = 1,
+def complete_task(client, task_no: int, task_decision: int,
                   comment: str = "") -> bool:
-    """Complete a workflow task with the specified exit/transition."""
+    """Complete a workflow task with the workflow's TaskDecision value."""
     payload = {
         "TaskNo": task_no,
-        "SelectedExitNo": exit_no,
+        "TaskDecision": task_decision,
+        "Comment": comment,
     }
-    if comment:
-        payload["Comment"] = comment
     try:
         client.post("CompleteTask", payload)
         return True
@@ -1033,8 +1003,9 @@ for task in tasks:
         amount     = get_field_value(index_data, "Amount")
         print(f"    Invoice: {invoice_no}, Amount: {amount}")
 
-    # Complete the task (exit 1 = Approve, exit 2 = Reject — depends on workflow)
-    # complete_task(client, task_no, exit_no=1, comment="Auto-approved by batch")
+    # Complete the task. Decision values are workflow-specific; do not assume 1/2.
+    # complete_task(client, task_no, task_decision=approved_value,
+    #               comment="Auto-approved by batch")
 
 # Query all tasks for a specific workflow process:
 ap_tasks = get_all_workflow_tasks(client, process_no=3)
@@ -1148,7 +1119,7 @@ def multi_keyword_field(field_no: int, keyword_nos: List[int]) -> dict:
     return {
         "MultipleKeywordData": {
             "FieldNo": field_no,
-            "Keywords": [{"KeywordNo": kno} for kno in keyword_nos]
+            "KeywordNos": keyword_nos
         }
     }
 
@@ -1191,7 +1162,8 @@ Search document content (not just index fields) using full-text keywords.
 ```python
 def full_text_search(client, search_text: str,
                      category_no: int = None,
-                     max_rows: int = 100) -> List[Dict]:
+                     max_rows: int = 100,
+                     include_index_data: bool = False) -> List[Dict]:
     """
     Search document content using full-text indexing.
 
@@ -1206,29 +1178,25 @@ def full_text_search(client, search_text: str,
     """
     payload = {
         "FullTextQuery": {
-            "SearchText": search_text,
+            "Search": search_text,
+            "Categories": [category_no] if category_no is not None else [],
             "MaxRows": max_rows,
-        }
+            "BlockSize": max_rows,
+            "CaseNo": 0,
+            "ContextMaxSizeKB": 0,
+            "ContextMode": 0,
+            "FuzzySearchLevel": 0,
+            "LCID": 0,
+            "MaxContentChars": 0,
+            "SearchScope": 0,
+            "SortOrder": 0,
+            "UseThesaurus": False,
+        },
+        "IncludeIndexData": include_index_data,
     }
-    if category_no:
-        payload["FullTextQuery"]["CategoryNo"] = category_no
 
     result = client.post("ExecuteFullTextQuery", payload)
-    query_result = result.get("QueryResult", {})
-
-    columns = query_result.get("Columns", [])
-    col_map = {i: col.get("ColName") or col.get("Caption")
-               for i, col in enumerate(columns)}
-
-    documents = []
-    for row in query_result.get("ResultRows", []):
-        doc = {"DocNo": row["DocNo"]}
-        for i, val in enumerate(row.get("IndexValues", [])):
-            if i in col_map:
-                doc[col_map[i]] = val
-        documents.append(doc)
-
-    return documents
+    return result.get("Results", [])
 
 
 # Usage:
@@ -1246,4 +1214,5 @@ docs = full_text_search(client, search_text="urgent review required", max_rows=5
 **Notes:**
 - Full-text search requires the Therefore full-text index to be enabled and up to date.
 - Returns results synchronously (no `QueryId` pagination — use `MaxRows` to limit).
-- Index field values are included in results alongside document numbers.
+- The response is a flat `Results` array, not the `QueryResult` shape used by index queries.
+- Index data is returned only when `include_index_data=True` and the server supplies it.

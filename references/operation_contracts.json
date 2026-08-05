@@ -1,0 +1,121 @@
+{
+  "schema_version": 1,
+  "source": "https://raw.githubusercontent.com/Fybre/therefore-mcp/main/docs/export/tenant_operations.json",
+  "source_commit": "f32d54f489c73f12025ad19bb03a5be017f49a6a",
+  "verified_on": "2026-08-05",
+  "operations": {
+    "AddComment": {
+      "method": "POST",
+      "required": ["CommentText", "ObjNo", "ObjType"],
+      "mutability": "write"
+    },
+    "CompleteTask": {
+      "method": "POST",
+      "required": ["Comment", "TaskDecision", "TaskNo"],
+      "mutability": "write"
+    },
+    "CheckInDocument": {
+      "method": "POST",
+      "required": ["DocNo"],
+      "optional": ["CheckInComment"],
+      "mutability": "write",
+      "note": "Requires an existing checkout with replacement content already opened/uploaded."
+    },
+    "CheckOutDocument": {
+      "method": "POST",
+      "required": ["DocNo"],
+      "mutability": "write"
+    },
+    "CreateCase": {
+      "method": "POST",
+      "required": ["CaseDefNo"],
+      "mutability": "write"
+    },
+    "CreateDocument": {
+      "method": "POST",
+      "required": ["CategoryNo", "IndexDataItems", "Streams"],
+      "forbidden": ["TheDocument"],
+      "mutability": "write"
+    },
+    "EditComment": {
+      "method": "POST",
+      "required": ["CommentText", "ID", "ObjNo", "ObjType"],
+      "mutability": "write"
+    },
+    "ExecuteFullTextQuery": {
+      "method": "POST",
+      "required": ["FullTextQuery", "IncludeIndexData"],
+      "response_root": "Results",
+      "mutability": "read"
+    },
+    "ExecuteUsersQuery": {
+      "method": "POST",
+      "required": ["Flags"],
+      "mutability": "read"
+    },
+    "GetCategoriesTree": {
+      "method": "POST",
+      "required": [],
+      "response_root": "TreeItems",
+      "mutability": "read"
+    },
+    "GetDocumentStream": {
+      "method": "POST",
+      "required": ["DocNo", "StreamNo"],
+      "response_root": "FileData",
+      "mutability": "read"
+    },
+    "GetSystemCustomerId": {
+      "method": "GET",
+      "required": [],
+      "mutability": "read"
+    },
+    "LoadComments": {
+      "method": "POST",
+      "required": ["MaxCount", "ObjNo", "ObjType"],
+      "response_root": "Comments",
+      "mutability": "read"
+    },
+    "SaveCaseIndexData": {
+      "method": "POST",
+      "required": ["CaseNo", "CheckInComments", "IndexData"],
+      "mutability": "write"
+    },
+    "SaveCaseIndexDataQuick": {
+      "method": "POST",
+      "required": ["CaseNo", "CheckInComments", "IndexData"],
+      "mutability": "write"
+    },
+    "LinkCaseToDocument": {
+      "method": "POST",
+      "required": ["CaseNo", "DocNo"],
+      "mutability": "write",
+      "note": "The accepted schema is known, but live read-back has not confirmed the link effect."
+    },
+    "LinkCases": {
+      "method": "POST",
+      "required": ["CaseNoA", "CaseNoB"],
+      "mutability": "write"
+    },
+    "UnlinkCases": {
+      "method": "POST",
+      "required": ["CaseNoA", "CaseNoB"],
+      "mutability": "write"
+    },
+    "RestoreDeletedCase": {
+      "method": "POST",
+      "required": ["CaseNo", "RestoreRelatedDocuments"],
+      "mutability": "write"
+    },
+    "UndoCheckOutDocument": {
+      "method": "POST",
+      "required": ["DocNo"],
+      "mutability": "write"
+    },
+    "PreprocessIndexData": {
+      "method": "POST",
+      "required": ["CategoryNo", "IndexData"],
+      "mutability": "read"
+    }
+  }
+}

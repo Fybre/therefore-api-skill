@@ -631,9 +631,10 @@ restart:
   `CopyDocument` endpoint doesn't exist on the live server (confirmed via WSDL) and no
   replacement was found, so the operation was removed entirely rather than left in as a
   guaranteed-to-fail stub.
-- Cases support is partial: `get_case_definition`, `create_case`, `get_case`,
-  `get_case_documents`, and `get_case_history` are exposed; `LinkCaseToDocument`,
-  `SaveCaseIndexData`/`SaveCaseIndexDataQuick`, `CloseCase`/`ReopenCase`/`DeleteCase`,
+- Cases support includes `get_case_definition`, `create_case`, `get_case`,
+  `get_case_documents`, `get_case_history`, referenced-value discovery
+  (`execute_dependent_fields_query`), dependent-field resolution (`fill_dependent_fields`),
+  and quick/full case index saves. `LinkCaseToDocument`, `CloseCase`/`ReopenCase`/`DeleteCase`,
   and `LinkCases`/`UnlinkCases` are not wired up yet.
 - `therefore_query`'s `search`/`search_async` operations do **not** support filtering by
   case — see pitfall #28. To answer "what categories/documents belong to this case", use

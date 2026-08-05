@@ -52,9 +52,11 @@ Case definition 11 (`Referenced Case Test`) was used.
   `SaveCaseIndexData` then returned 200 and were verified through `GetCase` read-back.
 - `FillDependentFields` succeeded with `CaseDefinitionNo` alone. Including zero-valued
   `DocNo`/`CategoryNo` placeholders failed; context members must be omitted unless selected.
+- The same discovery, fill, quick-save, full-save, and read-back sequence passed through the
+  grouped MCP tools after the operations were added to `therefore_workflow`.
 - A case-document link was not attempted because disposable document creation in the linked
   category failed before a case or link was created. Existing documents were not modified.
-- Cases 96–100 were created by these tests and confirmed unavailable after cleanup.
+- Cases 96–101 were created by these tests and confirmed unavailable after cleanup.
 
 ### Safety and cleanup
 

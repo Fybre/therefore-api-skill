@@ -49,6 +49,21 @@ Category 154 (`Test Category 1`) was used to verify the general referenced-field
   the complete state returned by `PreprocessIndexData`.
 - Disposable document 22163 was deleted and confirmed unavailable afterward.
 
+### User operations (2026-08-11)
+
+Read-only calls were revalidated after aligning the wrappers with the official User
+operations reference:
+
+- `GetConnectedUser {"Create": false}` returned the authenticated user.
+- `ExecuteUsersQuery {"Flags": 4}` returned 19 regular named users.
+- `GetUserDetails` returned details for a returned non-zero user ID.
+- `GetUsersFromGroup` succeeded using a numeric `GroupId` from `GetObjects`.
+
+The mutating/session operations (`CreateUser`, `ChangeUserPassword`, `ResetUserPwd`,
+`UpdateUserGroupAssignment`, `MoveUserLicense`, and `SignOut`) were contract-tested only;
+they were not invoked against the tenant because they create users, change security state,
+send reset notifications, alter memberships, or affect the authenticated license session.
+
 ### Disposable case results
 
 Case definition 11 (`Referenced Case Test`) was used.

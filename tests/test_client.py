@@ -102,6 +102,42 @@ class ClientContractTests(unittest.TestCase):
         self.client.execute_users_query()
         self.assertEqual(self.client.calls[0], ("POST", "ExecuteUsersQuery", {"Flags": 4}))
 
+    def test_official_user_operation_payloads(self):
+        self.client.create_user(
+            "jane.smith", display_name="Jane Smith", email="jane@example.com",
+            password="initial", one_time_password=True,
+        )
+        self.client.change_user_password("jane.smith", "old", "new", "DOMAIN")
+        self.client.reset_user_password("jane.smith")
+        self.client.update_user_group_assignment(
+            user_id=9,
+            assignments=[{"group_id": 12}, {"group_name": "Old Group", "remove": True}],
+        )
+        self.client.move_user_license()
+        self.client.sign_out()
+        self.assertEqual(self.client.calls[0][2], {
+            "Password": "initial",
+            "User": {
+                "UserName": "jane.smith", "DisplayName": "Jane Smith",
+                "SMTP": "jane@example.com", "UserType": 1,
+                "Disabled": False, "OneTimePwd": True,
+            },
+        })
+        self.assertEqual(self.client.calls[1][2], {
+            "UserName": "jane.smith", "OldPassword": "old",
+            "NewPassword": "new", "DomainName": "DOMAIN",
+        })
+        self.assertEqual(self.client.calls[2][2], {"UserInfo": "jane.smith"})
+        self.assertEqual(self.client.calls[3][2], {
+            "User": {"Id": 9},
+            "Assignments": [
+                {"ThereforeGroup": {"Id": 12}, "Remove": False},
+                {"ThereforeGroup": {"Name": "Old Group"}, "Remove": True},
+            ],
+        })
+        self.assertEqual(self.client.calls[4][2], {})
+        self.assertEqual(self.client.calls[5][1], "SignOut")
+
     def test_get_objects_does_not_apply_a_permission_mask_by_default(self):
         self.client.get_objects()
         self.client.get_objects(role_access_mask=123, perm_type=8)

@@ -62,6 +62,60 @@
       "required": ["Flags"],
       "mutability": "read"
     },
+    "ChangeUserPassword": {
+      "method": "POST",
+      "required": ["NewPassword", "OldPassword", "UserName"],
+      "optional": ["DomainName"],
+      "mutability": "write"
+    },
+    "CreateUser": {
+      "method": "POST",
+      "required": ["User"],
+      "optional": ["Password"],
+      "mutability": "write",
+      "note": "User is nested and includes required Disabled and OneTimePwd boolean members."
+    },
+    "GetConnectedUser": {
+      "method": "POST",
+      "required": ["Create"],
+      "response_root": "User",
+      "mutability": "read"
+    },
+    "GetUserDetails": {
+      "method": "POST",
+      "required": ["UserOrGroupId"],
+      "response_root": "UserDetails",
+      "mutability": "read"
+    },
+    "GetUsersFromGroup": {
+      "method": "POST",
+      "required_one_of": ["GroupId", "GroupName"],
+      "optional": ["DomainName"],
+      "response_root": "Users",
+      "mutability": "read"
+    },
+    "MoveUserLicense": {
+      "method": "POST",
+      "required": [],
+      "mutability": "write",
+      "note": "Moves the authenticated user's license from another node to the current node."
+    },
+    "ResetUserPwd": {
+      "method": "POST",
+      "required": ["UserInfo"],
+      "mutability": "write"
+    },
+    "SignOut": {
+      "method": "POST",
+      "required": [],
+      "mutability": "write",
+      "note": "Releases the authenticated user's license on the current node."
+    },
+    "UpdateUserGroupAssignment": {
+      "method": "POST",
+      "required": ["Assignments", "User"],
+      "mutability": "write"
+    },
     "ExecuteTaskInfoQuery": {
       "method": "POST",
       "required": ["MaxRows", "QueryMode", "ViewMode"],

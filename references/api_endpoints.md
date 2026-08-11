@@ -853,6 +853,89 @@ don't have.
 
 ## Users
 
+The official WebAPI groups these ten operations under **User operations**:
+
+| Operation | Purpose | Request contract |
+|---|---|---|
+| `ChangeUserPassword` | Change a specified user's password | `UserName`, `OldPassword`, `NewPassword`; optional `DomainName` |
+| `CreateUser` | Create an internal user or group | nested `User` object plus optional top-level `Password` |
+| `ExecuteUsersQuery` | Search/list users | `Flags`; optional `Query`, `DomainNames` |
+| `GetConnectedUser` | Return the authenticated user | `Create` boolean |
+| `GetUserDetails` | Return a user or group by ID | `UserOrGroupId` |
+| `GetUsersFromGroup` | List a group's users | `GroupId` or `GroupName`; optional `DomainName` |
+| `MoveUserLicense` | Move the authenticated user's license to this node | empty `{}` |
+| `ResetUserPwd` | Trigger forgot-password | `UserInfo` username string |
+| `SignOut` | Release the authenticated user's license on this node | empty `{}` |
+| `UpdateUserGroupAssignment` | Add/remove a user from Therefore groups | nested `User` plus `Assignments[]` |
+
+These operations act with the permissions and identity of the authenticated connection.
+`MoveUserLicense` does not move a license between arbitrary user IDs, and `SignOut` affects
+the authenticated user.
+
+### CreateUser
+
+`User` is nested; the flat `UserName`/`FullName` shape is not the WebAPI contract.
+`Disabled` and `OneTimePwd` are required boolean members of the nested user object.
+
+```json
+{
+  "Password": "initial password",
+  "User": {
+    "UserName": "jane.smith",
+    "DisplayName": "Jane Smith",
+    "SMTP": "jane.smith@example.com",
+    "UserType": 1,
+    "Disabled": false,
+    "OneTimePwd": true
+  }
+}
+```
+
+`UserType` values documented by the 2023 reference are `1` SingleUser, `2` UserGroup,
+and `3` SystemUser. Newer servers may also accept members such as `Force2FA`; confirm
+those additions against the target server's REST help/WSDL.
+
+### ChangeUserPassword and ResetUserPwd
+
+```json
+// ChangeUserPassword
+{
+  "UserName": "jane.smith",
+  "OldPassword": "old password",
+  "NewPassword": "new password"
+}
+
+// ResetUserPwd — internal user name, not UserId/SendEmail
+{"UserInfo": "jane.smith"}
+```
+
+### UpdateUserGroupAssignment
+
+Each assignment is an independent add/remove command. Identify the user by `Id`, or by
+`Name` plus `DomainName`. Identify each Therefore group by `Id` or `Name`.
+
+```json
+{
+  "User": {"Id": 9},
+  "Assignments": [
+    {"ThereforeGroup": {"Id": 12}, "Remove": false},
+    {"ThereforeGroup": {"Name": "Old Group"}, "Remove": true}
+  ]
+}
+```
+
+### License session operations
+
+Both operations take empty request objects:
+
+```json
+// MoveUserLicense
+{}
+
+// SignOut
+{}
+```
+
 ### ExecuteUsersQuery
 
 Look up users. (**Note:** `ResolveUserName` does not exist on the live server —

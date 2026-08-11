@@ -56,6 +56,17 @@ class DocumentationConsistencyTests(unittest.TestCase):
             ["CaseDefinitionNo", "CategoryNo"],
         )
         self.assertIn("CaseDefinitionNo", operations["FillDependentFields"]["context_members"])
+        self.assertEqual(
+            operations["ChangeUserPassword"]["required"],
+            ["NewPassword", "OldPassword", "UserName"],
+        )
+        self.assertEqual(operations["ResetUserPwd"]["required"], ["UserInfo"])
+        self.assertEqual(operations["MoveUserLicense"]["required"], [])
+        self.assertEqual(operations["SignOut"]["required"], [])
+        self.assertEqual(
+            operations["UpdateUserGroupAssignment"]["required"],
+            ["Assignments", "User"],
+        )
 
     def test_live_fixture_records_cleanup_and_server_scope(self):
         self.assertEqual(self.live["service"]["service_version"], "35.0.3.0")

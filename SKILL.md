@@ -431,8 +431,14 @@ Returns `Name`, `CategoryFields[]` (each with `Caption`, `FieldNo`, type info).
 | `ExecuteFullTextQuery` | Full text search | `FullTextQuery` object — see pitfalls #29–30 (real field names, indexing gaps) |
 | `GetKeywordsByFieldNo` | Keyword lookup by field | `FieldNo` |
 | `ExecuteUsersQuery` | List all users | `{"Flags": 4}` — see pitfall #19 |
+| `CreateUser` | Create an internal user/group | top-level `Password` + nested `User` |
+| `ChangeUserPassword` | Change a specified user's password | `UserName`, `OldPassword`, `NewPassword`, optional `DomainName` |
+| `ResetUserPwd` | Trigger forgot-password | `UserInfo` username string |
+| `GetConnectedUser` / `GetUserDetails` | Read authenticated/specified user | `Create` / `UserOrGroupId` |
 | `GetObjects` | List users + groups combined | `{"Flags": 0, "Type": 11}` |
 | `GetUsersFromGroup` | Members of a group | `{"GroupName": "..."}` or `{"GroupId": N}` — see pitfall #21 |
+| `UpdateUserGroupAssignment` | Add/remove group memberships | nested `User` + `Assignments[]` |
+| `MoveUserLicense` / `SignOut` | Move/release authenticated user's license | empty `{}` |
 | `ExecuteTaskInfoQuery` | Query workflow tasks | `QueryMode`, `ViewMode`, `MaxRows` required — see pitfall #32 |
 | `GetCategoriesTree` | Full category/folder tree | see pitfall #22 for real response shape |
 | `GetDocumentCheckoutStatus` | Check-out state of a doc | `DocNo` |
@@ -451,6 +457,44 @@ Returns `Name`, `CategoryFields[]` (each with `Caption`, `FieldNo`, type info).
 
 The API exposes full user and group membership data — useful for reporting, auditing, and
 supplementing XML exports that may not include security data.
+
+The official User operations are `ChangeUserPassword`, `CreateUser`, `ExecuteUsersQuery`,
+`GetConnectedUser`, `GetUserDetails`, `GetUsersFromGroup`, `MoveUserLicense`,
+`ResetUserPwd`, `SignOut`, and `UpdateUserGroupAssignment`. Important write shapes:
+
+```json
+// CreateUser: user properties are nested, not flat
+{
+  "Password": "initial password",
+  "User": {
+    "UserName": "jane.smith",
+    "DisplayName": "Jane Smith",
+    "SMTP": "jane.smith@example.com",
+    "UserType": 1,
+    "Disabled": false,
+    "OneTimePwd": true
+  }
+}
+
+// ChangeUserPassword
+{"UserName": "jane.smith", "OldPassword": "old", "NewPassword": "new"}
+
+// ResetUserPwd: username string, not UserId/SendEmail
+{"UserInfo": "jane.smith"}
+
+// UpdateUserGroupAssignment
+{
+  "User": {"Id": 9},
+  "Assignments": [
+    {"ThereforeGroup": {"Id": 12}, "Remove": false},
+    {"ThereforeGroup": {"Name": "Old Group"}, "Remove": true}
+  ]
+}
+```
+
+`MoveUserLicense {}` moves the authenticated user's license from another node to the
+current node; it does not accept source/target user IDs. `SignOut {}` releases the
+authenticated user's license on the current node.
 
 ### Get All Users
 
@@ -649,6 +693,7 @@ Fetch these on demand for deeper detail:
 
 | Resource | URL |
 |----------|-----|
+| Official Therefore WebAPI operation reference | https://therefore.net/help/2023/en-us/AR/SDK/WebAPI/the_webapi_reference.html |
 | Full endpoint schemas (all operations, request/response) | `references/api_endpoints.md` |
 | Python examples (raw REST + ThereforeClient wrapper) | https://raw.githubusercontent.com/Fybre/therefore-mcp/f32d54f489c73f12025ad19bb03a5be017f49a6a/docs/PYTHON_EXAMPLES.md |
 | Python quick reference (field types, patterns, ~850 tokens) | https://raw.githubusercontent.com/Fybre/therefore-mcp/f32d54f489c73f12025ad19bb03a5be017f49a6a/docs/PYTHON_QUICK_REFERENCE.md |
@@ -881,6 +926,12 @@ fetch the JavaScript/Formio reference URL above.
     number from `GetDocumentIndexData`. The grouped MCP helper
     `therefore_categories.resolve_referenced_field` automates metadata lookup, preprocessing,
     valid-row querying, typed ID selection, and dependent-field filling.
+
+37. **User-operation payloads are structured and identity-scoped** → `CreateUser` requires
+    a nested `User` object; `ChangeUserPassword` includes the target `UserName`;
+    `ResetUserPwd` accepts `UserInfo` rather than `UserId`/`SendEmail`; and
+    `UpdateUserGroupAssignment` uses nested `User` and `Assignments` objects.
+    `MoveUserLicense` and `SignOut` both take `{}` and operate on the authenticated user.
 
 ## Keeping Knowledge in Sync
 

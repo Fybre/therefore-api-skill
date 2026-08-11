@@ -562,21 +562,72 @@ class ThereforeClient:
             'RestoreRelatedDocuments': bool(restore_related_documents),
         })
 
-    def create_user(self, user_name: str, full_name: str, email: Optional[str] = None, password: Optional[str] = None, domain_name: Optional[str] = None) -> Dict[str, Any]:
-        payload = {'UserName': user_name, 'FullName': full_name}
+    def create_user(
+        self,
+        user_name: str,
+        display_name: Optional[str] = None,
+        email: Optional[str] = None,
+        password: Optional[str] = None,
+        domain_name: Optional[str] = None,
+        description: Optional[str] = None,
+        in_folder: Optional[str] = None,
+        user_type: int = 1,
+        disabled: bool = False,
+        one_time_password: bool = False,
+        force_2fa: Optional[bool] = None,
+    ) -> Dict[str, Any]:
+        user: Dict[str, Any] = {
+            'UserName': user_name,
+            'UserType': int(user_type),
+            'Disabled': bool(disabled),
+            'OneTimePwd': bool(one_time_password),
+        }
+        if display_name is not None:
+            user['DisplayName'] = display_name
         if email is not None:
-            payload['EMail'] = email
+            user['SMTP'] = email
+        if domain_name is not None:
+            user['DomainName'] = domain_name
+        if description is not None:
+            user['Description'] = description
+        if in_folder is not None:
+            user['InFolder'] = in_folder
+        if force_2fa is not None:
+            user['Force2FA'] = bool(force_2fa)
+        payload: Dict[str, Any] = {'User': user}
         if password is not None:
             payload['Password'] = password
-        if domain_name is not None:
-            payload['DomainName'] = domain_name
         return self._post('CreateUser', payload)
 
-    def update_user_group_assignment(self, user_id: int, group_ids: Optional[List[int]] = None) -> Dict[str, Any]:
-        payload = {'UserId': user_id}
-        if group_ids is not None:
-            payload['GroupIds'] = group_ids
-        return self._post('UpdateUserGroupAssignment', payload)
+    def update_user_group_assignment(
+        self,
+        assignments: List[Dict[str, Any]],
+        user_id: Optional[int] = None,
+        user_name: Optional[str] = None,
+        domain_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        if user_id is None and not (user_name and domain_name is not None):
+            raise ValueError('Specify user_id or user_name with domain_name')
+        if not assignments:
+            raise ValueError('assignments must contain at least one group assignment')
+        user: Dict[str, Any] = {'Id': int(user_id)} if user_id is not None else {
+            'Name': str(user_name), 'DomainName': str(domain_name)
+        }
+        normalized = []
+        for assignment in assignments:
+            group_id = assignment.get('group_id')
+            group_name = assignment.get('group_name')
+            if group_id is None and not group_name:
+                raise ValueError('Each assignment requires group_id or group_name')
+            group = {'Id': int(group_id)} if group_id is not None else {'Name': str(group_name)}
+            normalized.append({
+                'ThereforeGroup': group,
+                'Remove': bool(assignment.get('remove', False)),
+            })
+        return self._post('UpdateUserGroupAssignment', {
+            'User': user,
+            'Assignments': normalized,
+        })
 
     def get_user_group_assignment(self, user_id: int) -> Dict[str, Any]:
         return self._post('GetUserGroupNo', {'UserId': user_id})
@@ -584,11 +635,24 @@ class ThereforeClient:
     def set_user_password(self, user_id: int, new_password: str) -> Dict[str, Any]:
         return self._post('SetUserPassword', {'UserId': user_id, 'NewPassword': new_password})
 
-    def change_user_password(self, old_password: str, new_password: str) -> Dict[str, Any]:
-        return self._post('ChangeUserPassword', {'OldPassword': old_password, 'NewPassword': new_password})
+    def change_user_password(
+        self,
+        user_name: str,
+        old_password: str,
+        new_password: str,
+        domain_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        payload = {
+            'UserName': user_name,
+            'OldPassword': old_password,
+            'NewPassword': new_password,
+        }
+        if domain_name is not None:
+            payload['DomainName'] = domain_name
+        return self._post('ChangeUserPassword', payload)
 
-    def reset_user_password(self, user_id: int, send_email: bool = True) -> Dict[str, Any]:
-        return self._post('ResetUserPwd', {'UserId': user_id, 'SendEmail': send_email})
+    def reset_user_password(self, user_info: str) -> Dict[str, Any]:
+        return self._post('ResetUserPwd', {'UserInfo': user_info})
 
     def delete_portal_user(self, user_id: int) -> Dict[str, Any]:
         return self._post('DeletePortalUser', {'UserId': user_id})
@@ -605,8 +669,11 @@ class ThereforeClient:
             payload['IsActive'] = is_active
         return self._post('SavePortalUser', payload)
 
-    def move_user_license(self, source_user_id: int, target_user_id: int) -> Dict[str, Any]:
-        return self._post('MoveUserLicense', {'SourceUserId': source_user_id, 'TargetUserId': target_user_id})
+    def move_user_license(self) -> Dict[str, Any]:
+        return self._post('MoveUserLicense', {})
+
+    def sign_out(self) -> Dict[str, Any]:
+        return self._post('SignOut', {})
 
     def get_user_settings(self, user_id: int) -> Dict[str, Any]:
         return self._post('GetUserSettings', {'UserId': user_id})
@@ -683,6 +750,8 @@ class ThereforeClient:
         return self._post('ExecuteUsersQuery', payload)
 
     def get_users_from_group(self, group_id: Optional[int] = None, group_name: Optional[str] = None, domain_name: Optional[str] = None) -> Dict[str, Any]:
+        if group_id is None and not group_name:
+            raise ValueError('Specify group_id or group_name')
         payload: Dict[str, Any] = {}
         if group_id is not None:
             payload['GroupId'] = int(group_id)

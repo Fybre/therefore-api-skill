@@ -400,6 +400,50 @@ Category metadata and field definitions. Useful for validating field names.
 
 Returns `Name`, `CategoryFields[]` (each with `Caption`, `FieldNo`, type info).
 
+## eForms
+
+There's no operation named anything like "list eForms" in the REST API or WSDL. `Type: 47`
+is documented as `eForm` in the `GetObjects` Type-parameter value table (see
+[the official `GetObjects` reference](https://therefore.net/help/2023/en-us/AR/SDK/WebAPI/the_webapi_operation_getobjects.html)),
+but that documentation doesn't say this call also works as a full tenant-wide eForm
+*listing* — that part is only confirmed by live-tenant testing (`Fybre/eform-versioner`
+verified it returns an identical set of forms to an exhaustive `FormNo` scan).
+
+**List every eForm in the tenant:**
+
+**POST** `/restun/GetObjects`
+```json
+{"Flags": 1, "Type": 47}
+```
+
+Returns `{"ItemList": [...]}` where each item has `ID` (= `FormNo`), `Name`, `FolderNo`,
+`Guid`, and a `Flags` bit that's set exactly when `AnonymousAccessEnabled` is true. It does
+**not** include the form's current version number — fetch that per-form via `GetEForm`.
+
+**Fetch one eForm's definition:**
+
+**POST** `/restun/GetEForm`
+```json
+{"FormNo": 12, "VersionNo": 0}
+```
+
+`VersionNo: 0` means "latest". The response's `EForm.FormDefinition` is a Base64-encoded
+JSON/Form.io definition — decode it to inspect fields, scripts, or embedded credentials.
+
+**Save a new version of an eForm:**
+
+**POST** `/restun/SaveEForm`
+
+Takes the same shape as `GetEForm`'s response, with a new/modified `FormDefinition` and
+`VersionNo` set to create a new version rather than overwrite the current one (Therefore's
+own eForm designer has no versioning UI, but the underlying REST operations support it).
+
+**Fallback discovery** if `GetObjects(Type:47)` ever errors or returns empty on some server
+version/configuration: since `FormNo` is a plain sequential integer, probe `GetEForm(FormNo, 0)`
+across a range and collect the hits, stopping after a long enough run of consecutive misses
+past the highest hit found. Slower (round trips scale with the FormNo range scanned, not the
+form count) — only use it as a fallback, not the primary path.
+
 ## Endpoint Reference
 
 | Endpoint | Purpose | Key Params |
@@ -452,6 +496,9 @@ Returns `Name`, `CategoryFields[]` (each with `Caption`, `FieldNo`, type info).
 | `CreateCase` | Create a case | `{"CaseDefNo": N}` |
 | `GetCase` / `GetCaseDocuments` / `GetCaseHistory` | Read a case | `{"CaseNo": N}` |
 | `DeleteCase` | Delete a case | `{"CaseNo": N}` |
+| `GetObjects` (eForms) | List every eForm in the tenant | `{"Flags": 1, "Type": 47}` — see **eForms** above and pitfall #38 |
+| `GetEForm` | Fetch one eForm's definition | `FormNo`, `VersionNo` (0 = latest) |
+| `SaveEForm` | Save a new eForm version | Same shape as `GetEForm`'s response, new `FormDefinition`/`VersionNo` |
 
 ## User & Group Management
 
@@ -932,6 +979,12 @@ fetch the JavaScript/Formio reference URL above.
     `ResetUserPwd` accepts `UserInfo` rather than `UserId`/`SendEmail`; and
     `UpdateUserGroupAssignment` uses nested `User` and `Assignments` objects.
     `MoveUserLicense` and `SignOut` both take `{}` and operate on the authenticated user.
+
+38. **There's no "list eForms" operation — use `GetObjects {"Flags": 1, "Type": 47}`** → Type 47
+    ("eForm") is a documented `GetObjects` Type value, but the docs don't say this also works as
+    a tenant-wide eForm listing — that's only confirmed by live-tenant testing (matches an
+    exhaustive `FormNo` scan exactly). The response has no version number; fetch each form's
+    latest via `GetEForm(FormNo, VersionNo: 0)`. See **eForms** above.
 
 ## Keeping Knowledge in Sync
 

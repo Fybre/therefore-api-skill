@@ -444,6 +444,87 @@ across a range and collect the hits, stopping after a long enough run of consecu
 past the highest hit found. Slower (round trips scale with the FormNo range scanned, not the
 form count) — only use it as a fallback, not the primary path.
 
+## Server Settings (GetSettings family)
+
+Server/tenant configuration (the Solution Designer **Settings** dialog, incl. **Server Logging**)
+is readable over REST by **integer setting key**. The official docs list the operations but
+publish **no key enumeration** — keys below were found by scanning keys 1–1500 on craigdemo
+(Web API 35.0.3.0, Basic auth, read-only; 213 readable keys found).
+
+**POST** `/restun/GetSettings` — batch read, typed values:
+```json
+{"SettingKeys": [701, 702, 703, 704]}
+```
+```json
+{"Settings": [{"Key": 701, "IntValue": 1}, {"Key": 703, "IntValue": 1020}, ...]}
+```
+Each item carries **either** `IntValue` **or** `StringValue` (the other member is absent).
+
+**POST** `/restun/GetGlobalSettings` — batch read, values always as strings:
+```json
+{"Settings": [703, 700]}
+```
+```json
+{"SettingValues": [{"SettingNo": 703, "Value": "1020"}, {"SettingNo": 700, "Value": "<Server>..."}]}
+```
+`Settings` is a **plain int array** — `[{"SettingNo": 703}]` fails with a deserialization error.
+
+**POST** `/restun/GetSettingString` / `/restun/GetSettingInt` — single key:
+```json
+{"SettingKey": 703}
+```
+```json
+{"SettingValue": 1020}
+```
+The type must match: `GetSettingInt` on a string key → 500 `Invalid variant type 8`,
+`GetSettingString` on an int key → 500 `Invalid variant type 3`. Use `GetSettings` when unsure.
+
+**Error behaviour (important for discovery):**
+- An unknown key fails the **whole batch**: 500 `The ID of the setting N is not in the map of the settings.`
+- Some keys are protected: 500 `The Setting N is not accessible.` (key 4 — likely the DB credential).
+- So probe unknown ranges **one key per request** (parallelise), then batch the known keys.
+- `GetPublicSettings`, `GetPublicSettingString`, `GetPublicSettingInt` returned 500
+  `Not enough values returned in GetSettings.` for every key tried (1, 5, 10, 102, 175, 181,
+  703, 1021) — public-setting keys appear to be a different, undocumented set.
+- Called as an administrator. Whether non-admin users can read these keys is **not yet verified**
+  — several keys expose infrastructure (DB server, storage/buffer paths, SMTP, OAuth config).
+
+**Server Logging keys (verified against the Settings > Server Logging tab):**
+
+| Key | Meaning | Type / example |
+|-----|---------|----------------|
+| 700 | Log mask — XML `<Server><LogMask><V>n</V>…</LogMask></Server>`, 52 positional values | string |
+| 701 | Archive mode (1 = Every day; other values = weekly / monthly / by size — unmapped) | int, `1` |
+| 702 | Archive weekday (used with weekly mode) | int |
+| 703 | Archive time, **minutes after midnight, server time (UTC on Therefore Online)** | int, `1020` = 17:00 UTC |
+| 704 | Split size in MB — only used when archiving by file size; it starts a new file, it does not cap total size | int, `10` |
+
+LogMask values: `0` = Do not log, `1` = Log failure, `3` = Log always (`2` presumed Log success —
+not yet observed). Positions follow Therefore's internal event order, **not** the order shown in
+the dialog; the position → event map has not been established yet (toggle one event at a time
+and diff key 700 to map it).
+
+**Other keys observed (meaning inferred from values — treat as provisional):**
+
+| Key | Looks like |
+|-----|------------|
+| 1, 2, 3, 15 | DB server/database, a DB int, DB login name, DB connection options |
+| 100, 101, 600, 604 | SMTP host, sender address, SMTP user, mail settings XML |
+| 102 | Tenant web URL |
+| 104, 105, 501 | Buffer share path, cache path, full-text share path |
+| 131, 222 | Blocked file-extension lists |
+| 155, 159 | Allowed preview / media extension lists |
+| 174, 175 | Tenant name, default culture (`en-US`) |
+| 187, 189 | JWT trusted issuers XML, OAuth settings XML |
+| 201, 202 | Office hours XML, holidays XML |
+| 912 | Migration schedule/profile XML |
+| 1100 | Permission sets XML |
+| 1300 | Therefore server name |
+| 1301 | Storage status XML `<Exceeded>75</Exceeded><LicensedStorage>100</LicensedStorage>` |
+
+Typical use: config-drift auditing — snapshot keys 700–704 (and other security-relevant keys)
+on a schedule and alert on change, e.g. someone lowering logging levels.
+
 ## Endpoint Reference
 
 | Endpoint | Purpose | Key Params |
@@ -499,6 +580,9 @@ form count) — only use it as a fallback, not the primary path.
 | `GetObjects` (eForms) | List every eForm in the tenant | `{"Flags": 1, "Type": 47}` — see **eForms** above and pitfall #38 |
 | `GetEForm` | Fetch one eForm's definition | `FormNo`, `VersionNo` (0 = latest) |
 | `SaveEForm` | Save a new eForm version | Same shape as `GetEForm`'s response, new `FormDefinition`/`VersionNo` |
+| `GetSettings` | Read server settings by int key (typed) | `{"SettingKeys": [700, 703]}` — see **Server Settings** and pitfall #39 |
+| `GetGlobalSettings` | Read settings as strings | `{"Settings": [700, 703]}` (plain int array) |
+| `GetSettingString` / `GetSettingInt` | Read one setting (type must match) | `{"SettingKey": 703}` → `{"SettingValue": ...}` |
 
 ## User & Group Management
 
@@ -985,6 +1069,14 @@ fetch the JavaScript/Formio reference URL above.
     a tenant-wide eForm listing — that's only confirmed by live-tenant testing (matches an
     exhaustive `FormNo` scan exactly). The response has no version number; fetch each form's
     latest via `GetEForm(FormNo, VersionNo: 0)`. See **eForms** above.
+
+39. **Setting keys are undocumented integers, and one bad key fails the whole batch** →
+    `GetSettings`/`GetGlobalSettings` return 500 (`The ID of the setting N is not in the map of
+    the settings.`) if *any* key in the list is unknown, and `The Setting N is not accessible.`
+    for protected keys. Discover keys one per request, then batch. `GetGlobalSettings.Settings`
+    is a plain int array, not `[{"SettingNo": n}]`. `GetSettingInt`/`GetSettingString` fail with
+    `Invalid variant type` if the key's type doesn't match. Server Logging lives at keys 700–704
+    (703 = archive time in minutes, UTC). See **Server Settings** above.
 
 ## Keeping Knowledge in Sync
 

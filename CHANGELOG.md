@@ -18,6 +18,9 @@
 
 ### Added
 
+- Server settings operations (`GetSettings`, `GetGlobalSettings`, `GetSettingString`,
+  `GetSettingInt`) with live-verified shapes, error behaviour, and the Server Logging keys
+  700–704 (log mask, archive mode/weekday/time, split size); pitfall #39.
 - Machine-readable operation contracts and fixture-based regression tests.
 - Read-only smoke-test script and CI validation.
 - Project README and contribution guidance.

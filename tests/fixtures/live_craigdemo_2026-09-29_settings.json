@@ -1,0 +1,91 @@
+{
+  "tenant": "craigdemo",
+  "verified_on": "2026-09-29",
+  "service_version": "35.0.3.0",
+  "auth": "basic+TenantName",
+  "mode": "read-only",
+  "scan": {
+    "key_range": [
+      1,
+      1500
+    ],
+    "readable": 213,
+    "not_accessible": [
+      4
+    ],
+    "note": "values of infrastructure keys intentionally omitted"
+  },
+  "GetSettings": {
+    "request": {
+      "SettingKeys": [
+        701,
+        702,
+        703,
+        704
+      ]
+    },
+    "response": {
+      "Settings": [
+        {
+          "IntValue": 1,
+          "Key": 701
+        },
+        {
+          "IntValue": 1,
+          "Key": 702
+        },
+        {
+          "IntValue": 1020,
+          "Key": 703
+        },
+        {
+          "IntValue": 10,
+          "Key": 704
+        }
+      ]
+    }
+  },
+  "GetGlobalSettings": {
+    "request": {
+      "Settings": [
+        703
+      ]
+    },
+    "response": {
+      "SettingValues": [
+        {
+          "SettingNo": 703,
+          "Value": "1020"
+        }
+      ]
+    }
+  },
+  "GetSettingInt": {
+    "request": {
+      "SettingKey": 703
+    },
+    "response": {
+      "SettingValue": 1020
+    }
+  },
+  "log_mask_key_700": {
+    "positions": 52,
+    "values_seen": [
+      0,
+      1,
+      3
+    ],
+    "counts": {
+      "0": 19,
+      "1": 19,
+      "3": 14
+    }
+  },
+  "errors": {
+    "unknown_key": "The ID of the setting 50 is not in the map of the settings.",
+    "protected_key": "The Setting 4 is not accessible.",
+    "int_via_string": "Invalid variant type 3 in GetSettingString (703).",
+    "string_via_int": "Invalid variant type 8 in GetSettingInt (1).",
+    "public_settings": "Not enough values returned in GetSettings."
+  }
+}

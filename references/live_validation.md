@@ -93,3 +93,23 @@ Case definition 11 (`Referenced Case Test`) was used.
 Every successful write targeted an object created by the same validation run. All created
 documents and cases were deleted, and post-cleanup reads returned deleted/unavailable errors.
 No existing tenant object was updated, linked, deleted, or checked out.
+
+## Craigdemo — 2026-09-29 (settings, read-only)
+
+Environment: Therefore Web API, service version 35.0.3.0, Basic authentication with a
+`TenantName` header, administrator login. Read-only; no settings were changed by the test.
+Machine-readable results are in `tests/fixtures/live_craigdemo_2026-09-29_settings.json`
+(infrastructure values deliberately omitted).
+
+- Scanned `GetSettings` one key per request over keys 1–1500: 213 readable, key 4
+  `not accessible`, the rest `not in the map of the settings`.
+- A single unknown key fails a whole `GetSettings`/`GetGlobalSettings` batch.
+- Keys 700–704 match the Solution Designer Settings > Server Logging tab: 703 = 1020 matched
+  the dialog's archive time of 17:00, 704 = 10 matched the 10 MB size, 700 is a 52-value LogMask.
+  Archive time is server time; log files were observed arriving at 17:00–17:18 UTC.
+- `GetGlobalSettings` accepts a plain int array; the object form fails deserialization.
+- `GetSettingInt`/`GetSettingString` require a matching type (`Invalid variant type`).
+- `GetPublicSettings`, `GetPublicSettingString`, and `GetPublicSettingInt` failed for every key
+  tried with `Not enough values returned in GetSettings.`
+- Not yet verified: non-admin readability, LogMask position → event mapping, archive-mode values
+  other than 1.

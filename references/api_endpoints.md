@@ -23,6 +23,7 @@ The route-style utilities below are GET exceptions and take values in the URL pa
 - [Keywords](#keywords)
 - [Workflows](#workflows)
 - [Cases](#cases)
+- [Settings](#settings)
 - [Error Handling](#error-handling)
 
 ---
@@ -1383,6 +1384,69 @@ distinguishing "deleted" from "never existed". `CloseCase`, `ReopenCase`, and `D
 all take `{"CaseNo": N}`. `RestoreDeletedCase` takes
 `{"CaseNo": N, "RestoreRelatedDocuments": false}`. The restore request schema is confirmed
 by generated REST help; its live effect remains unverified.
+
+---
+
+## Settings
+
+Server/tenant settings are read by **integer key**; no key list is published. Verified read-only
+on craigdemo, Web API 35.0.3.0, 2026-09-29. See SKILL.md **Server Settings** for the key table.
+
+### GetSettings
+
+```json
+// Request (every key must exist, or the whole call fails):
+{"SettingKeys": [701, 703, 700]}
+
+// Response (each item has IntValue OR StringValue):
+{"Settings": [
+  {"Key": 701, "IntValue": 1},
+  {"Key": 703, "IntValue": 1020},
+  {"Key": 700, "StringValue": "<Server><LogMask><V>1</V><V>3</V>...</LogMask></Server>"}
+]}
+```
+
+### GetGlobalSettings
+
+```json
+// Request (plain int array):
+{"Settings": [703, 700]}
+
+// Response (values always strings):
+{"SettingValues": [{"SettingNo": 703, "Value": "1020"}, {"SettingNo": 700, "Value": "<Server>..."}]}
+```
+
+### GetSettingString / GetSettingInt
+
+```json
+// Request:
+{"SettingKey": 703}
+
+// Response:
+{"SettingValue": 1020}
+```
+
+Type mismatch → 500 `Invalid variant type 8` (string key via `GetSettingInt`) or
+`Invalid variant type 3` (int key via `GetSettingString`).
+
+### Errors
+
+| Condition | Response |
+|-----------|----------|
+| Unknown key anywhere in the list | 500 `The ID of the setting N is not in the map of the settings.` |
+| Protected key (e.g. 4) | 500 `The Setting N is not accessible.` |
+| `GetGlobalSettings` with `[{"SettingNo": n}]` | 500 deserialization error |
+| `GetPublicSettings` / `GetPublicSetting*` (any key tried) | 500 `Not enough values returned in GetSettings.` |
+
+### Server Logging keys
+
+| Key | Meaning |
+|-----|---------|
+| 700 | LogMask XML, 52 positional levels: 0 do not log, 1 failure, 3 always (2 = success, presumed) |
+| 701 | Archive mode (1 = every day) |
+| 702 | Archive weekday |
+| 703 | Archive time, minutes after midnight UTC (1020 = 17:00) |
+| 704 | Split size in MB (only for archive-by-size) |
 
 ---
 

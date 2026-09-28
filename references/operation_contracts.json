@@ -207,6 +207,30 @@
       "method": "POST",
       "required": ["CategoryNo", "IndexData"],
       "mutability": "read"
+    },
+    "GetSettings": {
+      "method": "POST",
+      "required": ["SettingKeys"],
+      "response_root": "Settings",
+      "mutability": "read"
+    },
+    "GetGlobalSettings": {
+      "method": "POST",
+      "required": ["Settings"],
+      "response_root": "SettingValues",
+      "mutability": "read"
+    },
+    "GetSettingString": {
+      "method": "POST",
+      "required": ["SettingKey"],
+      "response_root": "SettingValue",
+      "mutability": "read"
+    },
+    "GetSettingInt": {
+      "method": "POST",
+      "required": ["SettingKey"],
+      "response_root": "SettingValue",
+      "mutability": "read"
     }
   }
 }

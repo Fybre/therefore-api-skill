@@ -76,6 +76,19 @@ class DocumentationConsistencyTests(unittest.TestCase):
         self.assertTrue(self.live["write_tests"]["referenced_field_contexts"]["document_save_read_back"])
         self.assertTrue(self.live["write_tests"]["cleanup_verified"]["all_unavailable_after_cleanup"])
 
+    def test_settings_contracts_and_docs(self):
+        operations = self.contracts["operations"]
+        self.assertEqual(operations["GetSettings"]["required"], ["SettingKeys"])
+        self.assertEqual(operations["GetGlobalSettings"]["required"], ["Settings"])
+        self.assertEqual(operations["GetSettingInt"]["response_root"], "SettingValue")
+        self.assertIn("## Server Settings (GetSettings family)", self.skill)
+        self.assertIn('{"Settings": [703, 700]}', self.skill)
+        self.assertNotRegex(self.skill, r'"Settings":\s*\[\s*\{\s*"SettingNo"\s*:\s*\d')
+        self.assertIn("## Settings", self.endpoints)
+        fixture = json.loads((ROOT / "tests" / "fixtures" / "live_craigdemo_2026-09-29_settings.json").read_text())
+        self.assertEqual(fixture["GetSettingInt"]["response"], {"SettingValue": 1020})
+        self.assertEqual(fixture["log_mask_key_700"]["positions"], 52)
+
 
 if __name__ == "__main__":
     unittest.main()

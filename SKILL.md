@@ -494,15 +494,32 @@ The type must match: `GetSettingInt` on a string key → 500 `Invalid variant ty
 | Key | Meaning | Type / example |
 |-----|---------|----------------|
 | 700 | Log mask — XML `<Server><LogMask><V>n</V>…</LogMask></Server>`, 52 positional values | string |
-| 701 | Archive mode (1 = Every day; other values = weekly / monthly / by size — unmapped) | int, `1` |
-| 702 | Archive weekday (used with weekly mode) | int |
+| 701 | Archive mode: `1` Daily, `2` Weekly, `3` Monthly, `4` By file size | int, `1` |
+| 702 | Archive weekday (used only with mode 2; weekday numbering unmapped) | int |
 | 703 | Archive time, **minutes after midnight, server time (UTC on Therefore Online)** | int, `1020` = 17:00 UTC |
 | 704 | Split size in MB — only used when archiving by file size; it starts a new file, it does not cap total size | int, `10` |
 
-LogMask values: `0` = Do not log, `1` = Log failure, `3` = Log always (`2` presumed Log success —
-not yet observed). Positions follow Therefore's internal event order, **not** the order shown in
-the dialog; the position → event map has not been established yet (toggle one event at a time
-and diff key 700 to map it).
+Key 700 holds only the numbers, with no event names. Each `<V>` is one event's level, and the
+event is identified purely by position. LogMask values are an enumeration, not bit flags:
+`0` = Do not log, `1` = Log always, `2` = Log success, `3` = Log failure. Earlier versions of
+this skill had 1 and 3 swapped. The order above comes from Solution Designer 35.0.3's value formatter
+(resources 11625/11628/11626/11627), and the captured mask agrees: slot 1 allows only 0/1 and reads `1`.
+
+Positions follow Therefore's internal event order, **not** the dialog order. The one-based slot →
+event map, verified offline from Solution Designer 35.0.3
+([server-log-mask-mappings.md](https://github.com/Fybre/therefore-console-reference/blob/main/server-log-mask-mappings.md)):
+
+| Group | Slots |
+|-------|-------|
+| Administrative | 1 Server startup/shutdown\*, 4 User connect/disconnect, 7 Delete object, 8 Change settings, 9 Save object definition, 10 Run search, 11 Change security, 45 Server Tasks |
+| Document | 2 Demigrate, 3 Retention (final delete), 5 Change index data, 6 New, 16 Change, 22 Print\*, 23 Export/Send\*, 24 Retrieve, 25 Migrate, 26 Delete, 27 Check out, 31 Create link, 32 Delete link, 41–44 Start/Complete/Abort/Access collaboration\* |
+| Workflow | 12 Save instance, 13 Finish task, 14 Delegate, 15 Claim, 17 Unclaim, 18 Route (automatic), 19 Send overdue e-mail, 20 Start instance, 21 Finish instance, 38 Open instance, 39 Delete instance, 40 Reroute instance (manual) |
+| Task | 33 Task create, 34 Task definition change, 35 Task delete, 36 Task complete, 37 Task status change |
+| Sharing | 46 Share document, 47 Access shared document, 48 Edit shared link, 49 Revoke shared link |
+| Commenting | 50 Add a comment, 51 Edit own comment, 52 Edit others' comment |
+
+\* UI allows only `0`/`1`. Slots 28–30 have no entry in the dialog — preserve them. The map is
+build-specific: check there are 52 values before labelling, and don't guess names for other lengths.
 
 **Other keys observed (meaning inferred from values — treat as provisional):**
 

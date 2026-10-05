@@ -111,5 +111,6 @@ Machine-readable results are in `tests/fixtures/live_craigdemo_2026-09-29_settin
 - `GetSettingInt`/`GetSettingString` require a matching type (`Invalid variant type`).
 - `GetPublicSettings`, `GetPublicSettingString`, and `GetPublicSettingInt` failed for every key
   tried with `Not enough values returned in GetSettings.`
-- Not yet verified: non-admin readability, LogMask position → event mapping, archive-mode values
-  other than 1.
+- Not yet verified live: non-admin readability. The LogMask value enumeration, slot → event map and
+  archive-mode values were later established offline from Solution Designer 35.0.3 (see
+  Fybre/therefore-console-reference `server-log-mask-mappings.md`), not by this live test.

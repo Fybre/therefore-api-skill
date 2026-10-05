@@ -1442,8 +1442,8 @@ Type mismatch → 500 `Invalid variant type 8` (string key via `GetSettingInt`) 
 
 | Key | Meaning |
 |-----|---------|
-| 700 | LogMask XML, 52 positional levels: 0 do not log, 1 failure, 3 always (2 = success, presumed) |
-| 701 | Archive mode (1 = every day) |
+| 700 | LogMask XML, 52 positional levels: 0 do not log, 1 always, 2 success, 3 failure (slot map in SKILL.md) |
+| 701 | Archive mode (1 daily, 2 weekly, 3 monthly, 4 by file size) |
 | 702 | Archive weekday |
 | 703 | Archive time, minutes after midnight UTC (1020 = 17:00) |
 | 704 | Split size in MB (only for archive-by-size) |

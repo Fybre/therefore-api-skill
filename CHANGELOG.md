@@ -15,6 +15,8 @@
 - Corrected `GetObjects` permission-mask defaults and `ExecuteTaskInfoQuery` required members
   after live validation against Web API 35.0.3.0.
 - Removed the incorrect generic `GetCategoryInfo.FieldType` mapping.
+- Corrected LogMask (key 700) values: `1` = Log always and `3` = Log failure (were swapped); added
+  the 52-slot event map and key 701 archive-mode values from Solution Designer 35.0.3.
 
 ### Added
 

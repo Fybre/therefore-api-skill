@@ -20,6 +20,11 @@
 
 ### Added
 
+- On-prem SQL schema reference (`references/database_schema.md`) derived from a full SSMS script
+  of an on-prem Therefore database: table naming (`TheCat{n}`, `TheCase{n}`, `TheIxTable{n}`,
+  `TheKeywords{n}`), `TheString` name lookups, workflow/settings/audit/integration tables,
+  sensitive-column list and read-only starter queries; new **On-Premises SQL Database** section
+  and pitfalls #40–#42.
 - Server settings operations (`GetSettings`, `GetGlobalSettings`, `GetSettingString`,
   `GetSettingInt`) with live-verified shapes, error behaviour, and the Server Logging keys
   700–704 (log mask, archive mode/weekday/time, split size); pitfall #39.

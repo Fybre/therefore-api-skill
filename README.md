@@ -15,6 +15,7 @@ comments, cases, workflows, and full-text search.
 - `references/operation_contracts.json` — machine-readable contracts used by tests.
 - `references/live_validation.md` — redacted, server-versioned live verification results.
 - `references/powershell_reference.md` — PowerShell-specific patterns.
+- `references/database_schema.md` — on-prem SQL schema map and read-only diagnostic queries.
 - `scripts/example.py` — read-only connection and metadata smoke test.
 - `AUDIT.md` — function coverage, resolved findings, and remaining live-verification work.
 

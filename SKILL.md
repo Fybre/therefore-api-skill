@@ -542,6 +542,37 @@ build-specific: check there are 52 values before labelling, and don't guess name
 Typical use: config-drift auditing — snapshot keys 700–704 (and other security-relevant keys)
 on a schedule and alert on change, e.g. someone lowering logging levels.
 
+On-prem, `SELECT SettingNo, ServerNo, SettingName, SettingValue FROM TheSettings` gives the
+authoritative key → name map (see `references/database_schema.md` §7) — use it to replace the
+provisional meanings above. Mask credential-like keys before sharing the output.
+
+## On-Premises SQL Database (read-only diagnostics)
+
+On-prem installs give direct SQL access; Therefore Online does not. Use SQL to **read and
+diagnose**, never to write — direct writes bypass the server cache, number allocation, audit,
+workflow triggers and retention. Full map, sensitive-column list and starter queries:
+`references/database_schema.md`.
+
+API numbers map straight onto table names:
+
+| API concept | SQL |
+|---|---|
+| `CategoryNo` N | `TheCat{N}` — one row per `DocNo`, columns = field `FieldID` (API `ColName`) |
+| `CaseDefinitionNo` N | `TheCase{N}` (+ header row in `TheCase`) |
+| Table field `FieldNo` N | `TheIxTable{N}` (`DocNo, RowNo, RowPosition`, sub-field columns) |
+| Keyword dictionary N | `TheKeywords{N}` — `KeywordNo` only; display text is in `TheString` |
+| Setting key N | `TheSettings.SettingNo` — **with `SettingName`**, so query it instead of scanning keys over REST |
+
+Object names are not stored on their own tables — they are localised in `TheString`
+(category = MainObjType 3 / StringType 1, case definition = 37 / 18, workflow process = 19 / 8,
+workflow task = 19 with ObjNo = TaskNo / 10). Use the shipped inline functions, e.g.
+`CROSS APPLY dbo.itvf_TheGetCtgryNameFromNo(c.CtgryNo, 1033, 1033)`.
+
+Fast diagnostics: `TheWFTokens.ErrCode`/`ErrInfo` (failed workflow tasks), `TheWFQueue.IsError`
+(workflows that never started), `TheCntConnError` (Content Connector), `TheGraphConnQueue`
+(M365 sync), `TheWebhookLog` (inbound webhooks), `TheLoginHistory.ErrorCode` (failed logins),
+`TheDataType.LastRunError` (referenced-table sync).
+
 ## Endpoint Reference
 
 | Endpoint | Purpose | Key Params |
@@ -849,6 +880,7 @@ Fetch these on demand for deeper detail:
 | MCP server source (tool definitions, dispatch, ask_therefore_expert router, therefore_connect) | https://raw.githubusercontent.com/Fybre/therefore-mcp/f32d54f489c73f12025ad19bb03a5be017f49a6a/src/mcp_server.py |
 | PowerShell patterns (reserved vars, async pagination, SecureString) | `references/powershell_reference.md` |
 | Redacted live validation results | `references/live_validation.md` |
+| On-prem SQL schema (table naming, `TheString` names, workflow/settings/audit tables, starter queries) | `references/database_schema.md` |
 | JavaScript/Formio reference (browser library, window.Therefore) | https://raw.githubusercontent.com/Fybre/Therefore-Formio-Javascript/7d6dbba46e462231be73f3a83a6acf930d24b73c/docs/javascript_formio_reference.md |
 | JavaScript/Formio examples (complete Formio custom action patterns) | https://raw.githubusercontent.com/Fybre/Therefore-Formio-Javascript/7d6dbba46e462231be73f3a83a6acf930d24b73c/examples.js |
 
@@ -1093,7 +1125,20 @@ fetch the JavaScript/Formio reference URL above.
     for protected keys. Discover keys one per request, then batch. `GetGlobalSettings.Settings`
     is a plain int array, not `[{"SettingNo": n}]`. `GetSettingInt`/`GetSettingString` fail with
     `Invalid variant type` if the key's type doesn't match. Server Logging lives at keys 700–704
-    (703 = archive time in minutes, UTC). See **Server Settings** above.
+    (703 = archive time in minutes, UTC). See **Server Settings** above. On-prem, read
+    `TheSettings` (it has `SettingName`) instead of scanning.
+
+40. **Groups are rows in `TheUser`** → On-prem SQL shows `TheUserGroups.GroupNo` is a foreign key
+    to `TheUser`, the same table as users (distinguished by `UserType`). This is why `GetObjects`
+    Type 11 returns users and groups together.
+
+41. **A document's category is recorded per version** → It lives in `TheDocVersion.CtgryNo`, not
+    `TheDocument`. Join on `TheDocument.VersionNo` for the current category; `TheCat{n}` holds a
+    single row per document (current index values).
+
+42. **SQL columns are `FieldID`, not captions** → `TheCat{n}` columns are
+    `TheCtgryFields.FieldID` (the API's `ColName`). A caption shown in the client or
+    Solution Designer can differ from it — match on `ColName`/`FieldID`.
 
 ## Keeping Knowledge in Sync
 

@@ -114,3 +114,34 @@ Machine-readable results are in `tests/fixtures/live_craigdemo_2026-09-29_settin
 - Not yet verified live: non-admin readability. The LogMask value enumeration, slot → event map and
   archive-mode values were later established offline from Solution Designer 35.0.3 (see
   Fybre/therefore-console-reference `server-log-mask-mappings.md`), not by this live test.
+
+## Craigdemo — 2026-11-02 (workflows, full text, webhooks)
+
+Environment: Therefore Online, Web API service version 35.0.3.18, Basic authentication with a
+`TenantName` header plus JWT bearer tokens, the tenant owner's login. Request contracts were probed
+with empty bodies (read-only: each failed deserialization and named its required members).
+Machine-readable results are in `tests/fixtures/live_craigdemo_2026-11-02_workflow.json`.
+
+- `ClaimWorkflowInstance`, `DisclaimWorkflowInstance` and `GetWorkflowInstance` require
+  `InstanceNo` + `TokenNo`; `DelegateWorkflowInstance` also requires `UserName` **and `DomainName`**,
+  and fails on an unclaimed instance. Older clients sending `WorkflowInstanceToken` cannot work.
+- `ExecuteWorkflowQueryForAll` `WorkflowFlags: 1` returned delegated-away instances (process owner);
+  `0` is the inbox and includes a task assigned to one of the user's groups.
+- `ExecuteFullTextQuery` with `SearchScope: 0` missed a word that only occurs in document text;
+  `2` found it. `Query.FullText` in a category query was ignored (34 of 34 rows for a real word, a
+  nonsense word and no text); the top-level `FullText` filtered.
+- `GetJWTToken`: 24 h from Basic auth; with Bearer, 12 h once, then the identical token.
+- `GetObjectsList` with types 19 and 11 listed 57 workflow processes and the users/groups; adding
+  type 12 or 20 failed the whole call.
+- Webhook expiry and event semantics were confirmed by Therefore (see SKILL.md **Workflow
+  Notifications**). Without a notification mechanism configured,
+  `CreateWorkflowUserInboxSubscription` fails with "Notification mechanism was not set".
+
+### Writes and cleanup
+
+- A shared link was created on an existing demo document and revoked; revocation verified.
+- `SaveOutOfOfficeInfoForUser` was saved with the unchanged state (off, no delegates), verified.
+- One test comment was added to and edited on a demo workflow instance from the Therefore Tasks
+  app. There is no delete operation for comments, so it remains.
+- Two demo instances were delegated by the tenant owner through the app (not by a test script).
+- Claim/disclaim were not exercised by a script against live instances.

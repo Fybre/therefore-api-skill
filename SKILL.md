@@ -38,13 +38,26 @@ https://{server}/theservice/v0001/restun/{OperationName}
 
 ## Authentication
 
-Two authentication methods are supported:
+Three authentication methods are supported:
 
 ### 1. HTTP Basic Auth (most common)
 HTTP Basic Auth on every request. No session tokens or OAuth.
 
-### 2. Bearer Token Auth
-Use `GetConnectionToken` to get a token, then pass as `Authorization: Bearer {token}`.
+### 2. JWT Bearer Auth (`GetJWTToken`)
+Call `GetJWTToken` once with Basic auth (body `{}`) → `{"JWTToken", "ExpiresAt", "ExpiresAtISO8601"}`, then send
+`Authorization: Bearer {JWTToken}`. Verified on Therefore Online (craigdemo, Nov 2026):
+- A token from Basic auth lasts **24 h**.
+- Calling `GetJWTToken` **with a Bearer token** returns a token valid **12 h from now — but only once**: called with
+  an already-renewed token it returns **that same token** (same `nbf`/`exp`). So "sliding" renewal stretches a session
+  to ~36 h at most; after that the user (or stored credentials) must authenticate again. The docs say nothing about
+  renewal. Only renew when it would actually move the expiry (< 12 h left), and compare the returned expiry.
+- A 401 means the token is expired/invalid.
+
+### 3. Long-lived connection token (`GetConnectionToken`)
+Per the Web API guide ("Using Security Tokens", 2026): `GetConnectionToken` returns a **long-living token**, cleared
+only on sign-out or after a number of days of inactivity (configured in Solution Designer). Send it **instead of the
+password with Basic auth** (username + token, Base64 as usual) and set the HTTP header **`UseToken: 1`**. Not yet
+verified in code — but it is the documented way to keep a client signed in without storing the password.
 
 **Therefore Online (cloud) additionally requires a `TenantName` header** — without it,
 every request returns a 500 error saying "Tenant name is required." The tenant is the
@@ -69,6 +82,10 @@ if (parsed.hostname or '').lower().endswith('.thereforeonline.com'):
 
 **Test connection:** `POST /restun/GetConnectionToken` with empty body `{}`.
 Returns `{"Token": "..."}` on success.
+
+**Sign-in providers (SSO discovery):** `GetClientDiscoveryInfo {}` (works unauthenticated) returns `WebApiUrl` and
+`ClientSettings[]` with `FederationProvider` (0 None, 1 ADFS, 2 Azure AD, 3 Okta, 4 Generic OIDC, 5 OneLogin, 6 ADFS
+OIDC), `AuthenticationUrl`, `TokenUrl`, `ClientId`, `Scopes`, `UsePKCE`, `UseSystemBrowser`. Empty list = no SSO.
 
 ## Query Condition Syntax — Read This First
 
@@ -251,6 +268,19 @@ Always release when done:
 ```python
 post(session, "ReleaseSingleQuery", {"QueryID": query_id})
 ```
+
+### Full text inside a category query
+Put the search text in the **top-level** `FullText` member of the request, next to `Query`:
+```json
+{"FullText": "coarse", "Query": {"CategoryNo": 60, "Conditions": [], "MaxRows": 500, "RowBlockSize": 50, "Mode": 0}}
+```
+`Query.FullText` is documented too but is **silently ignored** — every row of the category comes back (verified:
+same 34 rows for a real word, a nonsense word and no text). The top-level member filters correctly.
+
+### Condition tips (verified with ExecuteAsyncSingleQuery)
+- Address fields by **FieldNo as a string** (`"FieldNoOrName": "987"`): keyword text fields can't be found by name.
+- Contains = `*text*`. Range = `">= a AND <= b"` — `a - b` and `BETWEEN` are rejected.
+- Default order is newest first (DocNo descending); there is no way to request descending order explicitly.
 
 ## GetDocumentIndexData
 
@@ -573,11 +603,155 @@ Fast diagnostics: `TheWFTokens.ErrCode`/`ErrInfo` (failed workflow tasks), `TheW
 (M365 sync), `TheWebhookLog` (inbound webhooks), `TheLoginHistory.ErrorCode` (failed logins),
 `TheDataType.LastRunError` (referenced-table sync).
 
+## Documents: downloads, previews, quick saves, sharing
+
+**Fast original-file download (GET route):**
+```
+GET https://{tenant}.thereforeonline.com/theservice/v0001/restun/{tenant}/documents/{DocNo}/{VersionNo}/streams/{StreamNo}
+```
+(`GetDocumentStreamFile`; same auth headers.) Streams the raw file — 2–3× faster than conversion for a document that
+is already one PDF. For anything else, `GetConvertedDocStreamsRaw`
+`{"DocNo", "VersionNo", "StreamNos": [], "ConversionOptions": {"ConvertTo": 4}}` returns the **binary** PDF
+(merged; `StreamNos: []` = all streams) instead of base64-in-JSON. Server conversion costs ~0.4–0.6 s per document.
+
+**Thumbnail:** `GetThumbnail {"DocNo", "SizeInPixels": 720, "RequestedThumbnailFormat": "jpeg"}` →
+`{"Exists", "ThumbnailFileData": [byte array]}`. `SizeInPixels: 0` returns `Exists: false`. ~1 s per call, re-rendered
+every time — cache on the client per document version. (`GetViewingThumbnails` is internal and slow.)
+
+**Partial index update without LastChangeTime:** `SaveDocumentIndexDataQuick`
+`{"DocNo", "CheckInComments": "", "IndexData": {"IndexDataItems": [...only the changed fields...]}}` — no new version,
+no concurrency check (re-read `LastChangeTime` yourself first if that matters), table fields not supported. Clearing
+works (`DataValue: null`). Single keyword: `{"SingleKeywordData": {"FieldNo": 0, "FieldName": "<Col>_Text",
+"DataValue": "keyword text"}}`. Money uses `DecimalDataValue`.
+
+**Creating with a keyword:** in `CreateDocument`, `SingleKeywordData` needs `KeywordNo` **and** `DataValue` (the
+keyword number as a string). `GetKeywordsByFieldNo {"FieldNo", "CategoryNo", "ShowDeactivatedKeywords": false}`
+returns parallel `Keywords` / `KeywordNos` arrays. `PreprocessIndexData` gives the category defaults (e.g. `$DATE`).
+
+**Permissions for editing:** `GetRolePermissionConstants {}` → `PermissionConstants` (e.g. `DocumentUpdateIndexData`,
+`CategoryFieldChange`, `CategoryFieldSet`); `GetCategoryInfo` with `IsAccessMaskNeeded: true` gives each field's
+`RoleAccessMask`. Masks are 64-bit — test bits with `Math.floor(mask / bit) % 2`, not `&` in JavaScript.
+
+**Shared links:** `CreateSharedLink {"DocNo", "ShareType": 0, "PermissionType": 0}` (0 = Organization,
+1 = SpecificPeople + `SharedWithUsers`, 2 = Public with optional `Password`/`ExpiresAt`/`Filename`) →
+`SharedLink.LinkUrl` (`https://{tenant}.thereforeonline.com/tdwv/#/sharedlink?id=...`), `LinkId`, `ExpiresAt`
+(default ~31 days). Revoke with `RevokeSharedLink {"LinkId"}`. `GetSharedLinksForDocument {"DocNo"}` lists them.
+
+**Opening things in the Web Client** (URL actions):
+- Document: `https://{tenant}.thereforeonline.com/tdwv/#/document/{DocNo}` (`?v=N` for a version)
+- Workflow instance: `https://{tenant}.thereforeonline.com/tdwv/#/workflows/instance/{InstanceNo}/{TokenNo}`
+- Portal users: `https://{tenant}.thereforeonline.com/Portal.aspx?pDocNo=N` (`&xprt=true` to download)
+
+`GenerateWebRefererenceNo {"OriginValue": "123"}` encrypts numbers for such links; its
+`EncryptWebReferenceLinkSetting` says whether the tenant requires encrypted links (false on craigdemo → plain numbers).
+
+## Workflows
+
+**Inbox / workflow lists:** `ExecuteWorkflowQueryForAll {"WorkflowFlags": 0, "MaxRows": 500}`.
+`WorkflowFlags`: **0 DefaultInstances = the user's inbox** (own tasks + tasks of groups the user is in),
+1 RunningInstances (everything running the user can see — **includes instances seen only as process owner**, e.g.
+tasks they delegated away), 2 Finished, 3 All, 4 Error, 8 Overdue. Using 1 for an inbox is a common mistake.
+
+Response: `WorkflowQueryResultList[]`, one group per process (`ProcessNo`, `ProcessName`, `CategoryName`, `Columns`,
+`ResultRows`). In each row's `IndexValues`: **0 instance no, 1 task name, 2 "assigned to" display text (comma list;
+a group shows by name), 3 task due date (UTC ISO, null when none), 4 (presumably) process due date**, then the
+category's index fields. Rows carry `InstanceNo`/`TokenNo`. There is **no claim state** in the rows.
+
+**One instance:** `GetWorkflowInstance {"InstanceNo", "TokenNo"}` → `WorkflowInstance` with `ProcessName`,
+`CurrTaskName`, `CurrTaskNo`, `AssignedTo` (text), **`AssignedToUsers` / `OriginallyAssignedToUsers` (user and group
+IDs)**, `Claimed`, `IsAssignedToUser`, `IsProcessOwner`, `DelegationDisabled`, `BlockWorkflowComments`,
+`TaskDueDateISO8601` (null; the WCF date is 1899/1900 when unset), `TaskStartDateISO8601`, `LinkedDocuments`, `Text`;
+plus `NextTasks` and `Transitions` (`ActionText`, `IsValid`, `RequestInfo`, `NextTask.UserChoice`). There is no
+"claimed by" field: once claimed, `AssignedToUsers` is the claimer and `OriginallyAssignedToUsers` keeps the group.
+
+**Resolve assignees:** `GetUserDetails {"UserOrGroupId": N}` → `UserDetails` with `UserType` (1 user, 2 group),
+`UserName`, `DisplayName`, `DomainName`, `SMTP`, `Disabled`, `ServiceAccount`.
+`GetUsersFromGroup {"GroupId": N}` lists members.
+
+**Actions:**
+- `ClaimWorkflowInstance` / `DisclaimWorkflowInstance {"InstanceNo", "TokenNo"}` (claim returns `IsAlreadyClaimed`,
+  `ClaimedByUserName`).
+- `FinishCurrentWorkflowTask {"InstanceNo", "TokenNo", "NextTaskNo", "TextInformation"?, "NextUsers":
+  {"NextUserNoList": [...]}?}` — claim first if needed.
+- `DelegateWorkflowInstance {"InstanceNo", "TokenNo", "UserName", "DomainName": ""}` — **`DomainName` is required by
+  the server** (send `""` for internal users) although the docs mark it optional, and the instance **must be claimed
+  first** ("The workflow instance must be claimed before you can perform this action").
+- `LinkDocAndWFInstance {"DocNo", "WorkflowInstanceNo", "TokenNo", "AutoClaimWorkflowInstance": true}` — attach a
+  document; auto-claim restores the previous claim state afterwards.
+- Comments on an instance: `LoadComments {"ObjNo": inst, "ObjType": 21, "WFInstanceNo": inst, "MaxCount": 0}`,
+  `AddComment {"ObjNo", "ObjType": 21, "CommentText"}`, `EditComment {+ "ID"}`. `SetTextInfoWorkflow` is deprecated.
+- `FinishWorkflowTaskQuick {"InstanceNo", "TokenNo", "TaskID", "NextTaskID", "Hash"}` is in the 2026 docs (error codes
+  TaskNotAvailable, InvalidTransition, ViewingRequired, CommentRequired, HashMismatch, ClaimedByOtherUser) but was
+  **not yet on Therefore Online** (Nov 2026).
+
+**Process and task names:** `GetWorkflowProcess {"ProcessNo", "VersionNo": 0, "LoadTasks": true}` →
+`WorkflowProcess.Name`, `Tasks[]` (`TaskNo`, `Name`, `Type`, `TaskGUID`) — names match `CurrTaskName`.
+List every process the user can see: **`GetObjectsList`** (below) with type 19.
+
+**Out of office:** `GetOutOfOfficeInfoForUser {"GetAsDelegateInfoList": false}` → `UserOutOfOfficeInfo`
+(`IsOutOfOfficeEnabled`, `DelegateUsers[]`). `SaveOutOfOfficeInfoForUser {"IsOutOfOfficeEnabled", "DelegateUsers":
+[{"UserId", "UserName", "DomainName", "UserType": 1}]}` replaces the list (`[]` clears it); omit `User` for the
+signed-in user. No start/end dates.
+
+## Batch object lists (`GetObjectsList`)
+
+```json
+{"LoadItemsList": [{"Type": 19, "Flags": 1, "RoleAccessMask": 0}, {"Type": 11, "Flags": 1, "RoleAccessMask": 0}]}
+```
+→ `AllItemsList[]`, one entry per requested type, each with `ItemList[]` (`ID`, `Name`, `Data`, `FolderNo`, `Guid`).
+Type 19 = workflow processes (57 on craigdemo), type 11 = users and groups (`Data` 1 user, 2 group; `Name` is the
+user name). **One unsupported type fails the whole call** ("Object type 20 is not supported by GetObjects") — types
+12 (Group) and 20 (WorkflowTask) are unsupported. `ExecuteUsersQuery` with `Query: "*"` returned no users on
+craigdemo for Flags 0–4; this is the reliable directory listing.
+
+## Workflow Notifications (Webhooks)
+
+`CreateWorkflowUserInboxSubscription` (called as the user) subscribes that user's inbox:
+```json
+{"Webhook": {"WebhookUrl": "https://relay.example/hook/<secret>", "ExpiryOption": 1, "AddTextMessage": true}}
+```
+→ `{"Id": "<subscription guid>"}`. Optional `EventFilter.Whitelist[{EventType, NotificationType}]` and `Custom`
+key/values. `GetNotificationSubscriptions {}` lists the user's subscription GUIDs; `RemoveNotificationSubscriptions
+{"RemoveGuids": [...]}`; `RefreshNotificationSubscriptions {"RefreshGuids": [...]}`.
+
+**Expiry (from Therefore):** `ExpiryOption` 0 (default) = time-based: webhook subscriptions must be refreshed within
+**14 days** or are removed. **1 = error-based: never needs refreshing**; removed only after failures spanning more than
+14 days (first to last failure, not configurable). A failure = webhook unreachable **or any HTTP error status** — so a
+relay should answer 2xx quickly, and can deliberately answer 404 for stale/unknown endpoints to have them dropped.
+Pull subscriptions expire after 30 min. The `Mobile` mechanism is for Therefore Go only.
+
+**Payload** (POSTed JSON):
+```json
+{"subscriptionId": "...", "timestamp": "...",
+ "data": {"eventType": 1, "wfInstance": 8182, "wfToken": 1, "wfProcess": 259, "wfTask": 5433,
+          "wfTaskGuid": "...", "wfVersion": 3},
+ "message": {"title": "Workflow instance assigned.", "body": "A new workflow instance was assigned to you."}}
+```
+Only numbers — no process/task names, no index data; `message` (with `AddTextMessage`) is generic. To show names,
+resolve `wfProcess`/`wfTask` via `GetWorkflowProcess` (cache them; the webhook receiver has no user credentials).
+Expect duplicates (several identical posts within a second) — de-duplicate on subscription+instance+token+event+timestamp.
+
+**NotificationType:** only 1 (WorkflowNotification). **Event types** (per Therefore):
+
+| eventType | Meaning |
+|-----------|---------|
+| 1 Assigned | A manual task was assigned to the user or a group they belong to. Delegation recipients get this. Also re-sent to everyone still assigned after an Unclaim (including the user who unclaimed). |
+| 2 Delegated | Sent to the user who **did** the delegating. |
+| 3 Processed | The user processed the task. |
+| 4 Claimed | The user claimed it. Implicit (immediately after Assigned) when assigned directly to one user. Other assignees then get Unassigned. |
+| 5 Unclaimed | The user unclaimed it (followed by Assigned to all current assignees). |
+| 6 Deleted | The instance was deleted — only the deleting user gets this; others get Unassigned. |
+| 7 Rerouted | Like Processed, but rerouted. |
+| 8 Unassigned | No longer available to the user (e.g. someone else claimed it). |
+
+For phone notifications: alert on 1 (suppress repeats for a task already announced), clear on 2/3/6/7/8, refresh
+silently on 4/5.
+
 ## Endpoint Reference
 
 | Endpoint | Purpose | Key Params |
 |----------|---------|------------|
-| `GetConnectionToken` | Test auth / get bearer token | empty `{}` |
+| `GetConnectionToken` | Test auth / long-lived token (Basic + `UseToken: 1`) | empty `{}` |
 | `GetCategoriesTree` | List categories | empty `{}` |
 | `GetCategoryInfo` | Category metadata | `CategoryNo` |
 | `ExecuteSingleQuery` | Search (synchronous) | `Query` object |
@@ -599,9 +773,26 @@ Fast diagnostics: `TheWFTokens.ErrCode`/`ErrInfo` (failed workflow tasks), `TheW
 | `GetConvertedDocStreams` | Get converted streams | `DocNo`, `ConversionOptions` |
 | `GetDocumentStream` | Download file content as base64 | `DocNo`, `StreamNo` |
 | `DeleteDocument` | Delete document | `DocNo` |
-
+| `GetJWTToken` | JWT for Bearer auth (24 h; one 12 h renewal) | `{}` — see **Authentication** |
+| `GetClientDiscoveryInfo` | SSO providers for the tenant | `{}` |
+| `ExecuteWorkflowQueryForAll` | Inbox / workflow lists | `WorkflowFlags` (0 = inbox!), `MaxRows` — see **Workflows** |
+| `GetWorkflowInstance` | Task details, assignment, transitions | `InstanceNo`, `TokenNo` |
+| `GetWorkflowHistory` | Instance history | `InstanceNo` |
+| `ClaimWorkflowInstance` / `DisclaimWorkflowInstance` | Claim / release | `InstanceNo`, `TokenNo` |
+| `FinishCurrentWorkflowTask` | Complete a task | `InstanceNo`, `TokenNo`, `NextTaskNo`, optional `TextInformation`, `NextUsers` |
+| `DelegateWorkflowInstance` | Hand a task to a user | `InstanceNo`, `TokenNo`, `UserName`, **`DomainName`** (required) — claim first |
+| `LinkDocAndWFInstance` | Attach a document to a workflow | `DocNo`, `WorkflowInstanceNo`, `TokenNo`, `AutoClaimWorkflowInstance` |
+| `GetWorkflowProcess` | Process + task names | `ProcessNo`, `VersionNo: 0`, `LoadTasks: true` |
+| `GetObjectsList` | Several object lists in one call | `LoadItemsList[{Type, Flags, RoleAccessMask}]` — see **Batch object lists** |
+| `CreateWorkflowUserInboxSubscription` | Webhook for the user's inbox | `Webhook {WebhookUrl, ExpiryOption, AddTextMessage}` — see **Workflow Notifications** |
+| `Get/Save/DeleteOutOfOfficeInfoForUser` | Out of office + delegates | see **Workflows** |
+| `GetThumbnail` | First-page thumbnail | `DocNo`, `SizeInPixels` (> 0), `RequestedThumbnailFormat` |
+| `GetConvertedDocStreamsRaw` | Converted (merged) PDF as binary | `DocNo`, `VersionNo`, `StreamNos: []`, `ConversionOptions.ConvertTo: 4` |
+| `SaveDocumentIndexDataQuick` | Partial index update, no LastChangeTime | `DocNo`, `IndexData.IndexDataItems` (changed fields only) |
+| `CreateSharedLink` / `RevokeSharedLink` | Share links to a document | `DocNo`, `ShareType`, `PermissionType` / `LinkId` |
+| `GenerateWebRefererenceNo` | Encrypt numbers for Web Access links | `OriginValue` |
 | `ExecuteAsyncMultiQuery` | Query multiple categories | `Queries` array — see pitfall #25 (pagination unreliable) |
-| `ExecuteFullTextQuery` | Full text search | `FullTextQuery` object — see pitfalls #29–30 (real field names, indexing gaps) |
+| `ExecuteFullTextQuery` | Full text search | `FullTextQuery` object — see pitfalls #29–30 (real field names, `SearchScope`, indexing gaps) |
 | `GetKeywordsByFieldNo` | Keyword lookup by field | `FieldNo` |
 | `ExecuteUsersQuery` | List all users | `{"Flags": 4}` — see pitfall #19 |
 | `CreateUser` | Create an internal user/group | top-level `Password` + nested `User` |
@@ -618,7 +809,7 @@ Fast diagnostics: `TheWFTokens.ErrCode`/`ErrInfo` (failed workflow tasks), `TheW
 | `CheckOutDocument` | Lock a doc for editing | `DocNo` |
 | `UndoCheckOutDocument` | Release a checkout w/o saving | `DocNo` |
 | `CheckInDocument` | Save & release a checkout | `DocNo` + new content — see pitfall #24 |
-| `LoadComments` | List comments on a doc | `{"ObjNo": N, "ObjType": 2, "MaxCount": N}` |
+| `LoadComments` | List comments on a doc / case / workflow instance | `{"ObjNo": N, "ObjType": 2, "MaxCount": N}` (ObjType 2 document, 38 case, 21 workflow instance + `WFInstanceNo`) |
 | `AddComment` | Add a comment | `{"ObjNo": N, "ObjType": 2, "CommentText": "..."}` |
 | `EditComment` | Edit a comment | + `"ID"` (GUID from `LoadComments`) — no `DeleteComment` exists |
 | `GetCaseDefinition` | Case definition metadata | `{"CaseDefinitionNo": N}` |
@@ -850,6 +1041,11 @@ restart:
 
 ### Known gaps in the MCP tool surface (as of 2026-08-05)
 
+- `therefore_workflow` `claim`/`disclaim`/`delegate` take `instance_no` + `token_no` (delegate also
+  `user_name`, optional `domain_name`) from therefore-mcp's Nov 2026 update; older builds sent a
+  non-existent `WorkflowInstanceToken` and always failed. The same update adds `finish_task`
+  (`FinishCurrentWorkflowTask`) and `link_document`, makes `complete_task` follow the `CompleteTask`
+  contract, and gives `therefore_query` `search_fulltext` a `search_scope` defaulting to 2.
 - `therefore_documents` has **no document-copy operation** — the underlying
   `CopyDocument` endpoint doesn't exist on the live server (confirmed via WSDL) and no
   replacement was found, so the operation was removed entirely rather than left in as a
@@ -1058,6 +1254,10 @@ fetch the JavaScript/Formio reference URL above.
     of those and it 500s ("required data members ... were not found"). The response is
     also a flat `{"Results": [...]}` array with `MatchedWords`/`Relevance` per hit, not
     the `QueryResult`/`Columns`/`ResultRows` shape `ExecuteSingleQuery` uses.
+    **`SearchScope` matters: 0 = index data only, 1 = document content, 2 = both.** With 0, words that appear only in
+    a document's text are never found. Each hit has `HitCount` (occurrences); `ContextMode: 1` returns `Context`, but
+    it is the start of the document text, not the passage around the hit. To tell index-data matches from text hits,
+    run scope 0 and scope 1 side by side.
 
 30. **A category having `IsFulltextEnabled: true` doesn't mean every document in it is
     full-text searchable** → Verified against a live tenant: a document with `IsFulltextEnabled`
@@ -1067,7 +1267,8 @@ fetch the JavaScript/Formio reference URL above.
     the live WSDL operation list). If a full-text search seems to be missing a document
     you know contains the term, don't assume the query is wrong — the document may
     simply not be in the full-text index yet (failed/pending indexing), which needs
-    checking from the Therefore admin console, not the API.
+    checking from the Therefore admin console, not the API. **First check `SearchScope`** (pitfall #29): with
+    `SearchScope: 0` only index data is searched, which looks exactly like "the document isn't indexed".
 
 31. **Do not add a max `RoleAccessMask` to `GetObjects` by default** → On craigdemo Web API
     35.0.3.0, `{"Flags":0,"Type":11}` returned 32 objects, while adding
@@ -1139,6 +1340,42 @@ fetch the JavaScript/Formio reference URL above.
 42. **SQL columns are `FieldID`, not captions** → `TheCat{n}` columns are
     `TheCtgryFields.FieldID` (the API's `ColName`). A caption shown in the client or
     Solution Designer can differ from it — match on `ColName`/`FieldID`.
+
+
+43. **`ExecuteWorkflowQueryForAll` `WorkflowFlags: 1` is not the inbox** → 1 = RunningInstances, which also returns
+    instances the user only sees as process owner (e.g. tasks they delegated away). The inbox is `0`
+    (DefaultInstances), which does include tasks assigned to the user's groups.
+
+44. **`Query.FullText` is ignored** → For a full-text filter in `ExecuteSingleQuery`/`ExecuteAsyncSingleQuery`, use
+    the request's top-level `FullText` member. `Query.FullText` returns every row with no error.
+
+45. **`DelegateWorkflowInstance` needs `DomainName` and a claimed instance** → Without `DomainName` it fails with a
+    deserialization error ("required data member 'DomainName' was not found") — send `""` for internal users. On an
+    unclaimed instance it fails with "The workflow instance must be claimed before you can perform this action".
+
+46. **JWT renewal works once** → `GetJWTToken` with a Bearer token extends to 12 h from now only for a token issued
+    by Basic auth; renewing a renewed token returns the identical token. Don't assume indefinite sliding sessions.
+
+47. **`GetObjectsList` fails as a whole on one unsupported type** → Types 12 and 20 are rejected ("not supported by
+    GetObjects"); request only supported types (11, 19, …).
+
+48. **Webhook payloads carry numbers only** → `wfProcess`/`wfTask` IDs and a generic English message. Names need
+    `GetWorkflowProcess`; the receiver has no credentials of its own, so names must be cached from a client session.
+
+49. **Webhook `ExpiryOption` default is time-based (0)** → Subscriptions silently disappear after 14 days unless
+    refreshed. Use `ExpiryOption: 1` (error-based) for push relays, and keep the endpoint returning 2xx.
+
+## Official 2026 documentation
+
+- Web API reference (requires a Therefore help login; blocks automated fetching): `https://help.therefore.net/webapi2026/webapi/index.html`
+  — one page per operation at `.../webapi/{operationname-lowercase}.html`, with enum values (e.g. WorkflowFlags,
+  SearchScope, ShareType) that the per-tenant `/restun/help` pages don't show.
+- Web API guide: `https://help.therefore.net/webapi2026/webapi_guide/the.webapi.index.htm` (security tokens, HTTP
+  headers, endpoints).
+- Web Client URL actions: `https://help.therefore.net/tfo/en-us/tdwv/dwv_r_urlactions.htm`
+- Per-tenant operation list with XML/JSON request samples: `https://{tenant}.thereforeonline.com/theservice/v0001/restun/help`
+  and `.../restun/help/operations/{Operation}` (shows member names but not enum meanings).
+
 
 ## Keeping Knowledge in Sync
 

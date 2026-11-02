@@ -90,5 +90,31 @@ class DocumentationConsistencyTests(unittest.TestCase):
         self.assertEqual(fixture["log_mask_key_700"]["positions"], 52)
 
 
+    def test_workflow_contracts_and_docs(self):
+        operations = self.contracts["operations"]
+        fixture = json.loads((ROOT / "tests" / "fixtures" / "live_craigdemo_2026-11-02_workflow.json").read_text())
+        probed = fixture["required_members_from_empty_body"]
+        for name in ("ClaimWorkflowInstance", "DisclaimWorkflowInstance", "DelegateWorkflowInstance",
+                     "LinkDocAndWFInstance", "FinishCurrentWorkflowTask", "GetObjectsList", "CreateSharedLink"):
+            self.assertEqual(operations[name]["required"], probed[name], name)
+        self.assertIn("DomainName", operations["DelegateWorkflowInstance"]["required"])
+        self.assertIn("**0 DefaultInstances = the user's inbox**", self.skill)
+        self.assertIn("## Workflow Notifications (Webhooks)", self.skill)
+        client = (ROOT / "references" / "therefore_client.py").read_text()
+        self.assertNotIn("'WorkflowInstanceToken'", client)
+        self.assertIn("'DomainName': domain_name", client)
+
+    def test_full_text_examples_search_document_content(self):
+        client = (ROOT / "references" / "therefore_client.py").read_text()
+        for text in (self.endpoints, self.examples):
+            self.assertNotRegex(text, r'"SearchScope":\s*0\b')
+        self.assertIn("'SearchScope': int(search_scope)", client)
+        self.assertIn("search_scope: int = 2", client)
+        self.assertIn("`Query.FullText` is ignored", self.skill)
+
+    def test_pitfalls_are_numbered_sequentially(self):
+        numbers = [int(n) for n in re.findall(r"^(\d+)\. \*\*", self.skill.split("## Common Pitfalls", 1)[1], re.M)]
+        self.assertEqual(numbers, list(range(1, len(numbers) + 1)))
+
 if __name__ == "__main__":
     unittest.main()

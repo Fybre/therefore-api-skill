@@ -231,6 +231,128 @@
       "required": ["SettingKey"],
       "response_root": "SettingValue",
       "mutability": "read"
+    },
+    "ExecuteWorkflowQueryForAll": {
+      "method": "POST",
+      "required": ["WorkflowFlags"],
+      "optional": ["MaxRows"],
+      "response_root": "WorkflowQueryResultList",
+      "mutability": "read",
+      "note": "WorkflowFlags 0 = inbox (DefaultInstances, includes group tasks); 1 = RunningInstances also includes process-owner-only instances."
+    },
+    "GetWorkflowInstance": {
+      "method": "POST",
+      "required": ["InstanceNo", "TokenNo"],
+      "response_root": "WorkflowInstance",
+      "mutability": "read"
+    },
+    "ClaimWorkflowInstance": {
+      "method": "POST",
+      "required": ["InstanceNo", "TokenNo"],
+      "mutability": "write"
+    },
+    "DisclaimWorkflowInstance": {
+      "method": "POST",
+      "required": ["InstanceNo", "TokenNo"],
+      "mutability": "write"
+    },
+    "DelegateWorkflowInstance": {
+      "method": "POST",
+      "required": ["DomainName", "InstanceNo", "TokenNo", "UserName"],
+      "mutability": "write",
+      "note": "DomainName is required by the server (\"\" for internal users); the instance must be claimed first."
+    },
+    "FinishCurrentWorkflowTask": {
+      "method": "POST",
+      "required": ["InstanceNo", "NextTaskNo", "TokenNo"],
+      "optional": ["NextUsers", "TextInformation"],
+      "mutability": "write"
+    },
+    "LinkDocAndWFInstance": {
+      "method": "POST",
+      "required": ["DocNo", "TokenNo", "WorkflowInstanceNo"],
+      "optional": ["AutoClaimWorkflowInstance"],
+      "mutability": "write"
+    },
+    "GetObjectsList": {
+      "method": "POST",
+      "required": ["LoadItemsList"],
+      "response_root": "AllItemsList",
+      "mutability": "read",
+      "note": "Types 12 and 20 are unsupported and fail the whole call."
+    },
+    "RemoveNotificationSubscriptions": {
+      "method": "POST",
+      "required": ["RemoveGuids"],
+      "mutability": "write"
+    },
+    "CreateSharedLink": {
+      "method": "POST",
+      "required": ["DocNo", "PermissionType", "ShareType"],
+      "response_root": "SharedLink",
+      "mutability": "write"
+    },
+    "RevokeSharedLink": {
+      "method": "POST",
+      "required": ["LinkId"],
+      "mutability": "write"
+    },
+    "GetThumbnail": {
+      "method": "POST",
+      "required": ["DocNo"],
+      "optional": ["RequestedThumbnailFormat", "SizeInPixels"],
+      "mutability": "read",
+      "note": "SizeInPixels 0 returns Exists: false."
+    },
+    "SaveDocumentIndexDataQuick": {
+      "method": "POST",
+      "required": ["DocNo", "IndexData"],
+      "optional": ["CheckInComments"],
+      "mutability": "write",
+      "note": "No LastChangeTime or concurrency check; table fields unsupported."
+    },
+    "GenerateWebRefererenceNo": {
+      "method": "POST",
+      "required": ["OriginValue"],
+      "mutability": "read"
+    },
+    "GetConvertedDocStreamsRaw": {
+      "method": "POST",
+      "required": ["ConversionOptions", "DocNo", "StreamNos"],
+      "optional": ["VersionNo"],
+      "mutability": "read",
+      "note": "Returns the binary file, not JSON."
+    },
+    "ExecuteAsyncSingleQuery": {
+      "method": "POST",
+      "required": ["Query"],
+      "optional": ["FullText"],
+      "mutability": "read",
+      "note": "Full-text filter goes in top-level FullText; Query.FullText is ignored."
+    },
+    "GetNextFullTextQueryRows": {
+      "method": "POST",
+      "required": ["QueryID"],
+      "mutability": "read"
+    },
+    "GetJWTToken": {
+      "method": "POST",
+      "required": [],
+      "response_root": "JWTToken",
+      "mutability": "read",
+      "note": "24 h from Basic auth; one 12 h renewal with Bearer, then the same token is returned."
+    },
+    "GetClientDiscoveryInfo": {
+      "method": "POST",
+      "required": [],
+      "mutability": "read"
+    },
+    "GetOutOfOfficeInfoForUser": {
+      "method": "POST",
+      "required": [],
+      "optional": ["GetAsDelegateInfoList", "User"],
+      "response_root": "UserOutOfOfficeInfo",
+      "mutability": "read"
     }
   }
 }

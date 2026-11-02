@@ -1181,6 +1181,9 @@ def full_text_search(client, search_text: str,
         search_text:  Words or phrase to search for.
         category_no:  Optional — restrict to one category.
         max_rows:     Maximum results to return (default 100).
+
+    SearchScope: 0 = index data only, 1 = document content, 2 = both.
+    Use 2 (or 1) here — with 0, words that only appear in the file text are never found.
     """
     payload = {
         "FullTextQuery": {
@@ -1194,7 +1197,7 @@ def full_text_search(client, search_text: str,
             "FuzzySearchLevel": 0,
             "LCID": 0,
             "MaxContentChars": 0,
-            "SearchScope": 0,
+            "SearchScope": 2,
             "SortOrder": 0,
             "UseThesaurus": False,
         },

@@ -470,23 +470,43 @@ class ThereforeClient:
             'Comment': comment,
         })
 
-    def claim_workflow_instance(self, workflow_instance_token: str, task_no: Optional[int] = None) -> Dict[str, Any]:
-        payload = {'WorkflowInstanceToken': workflow_instance_token}
-        if task_no is not None:
-            payload['TaskNo'] = task_no
-        return self._post('ClaimWorkflowInstance', payload)
+    def claim_workflow_instance(self, instance_no: int, token_no: int) -> Dict[str, Any]:
+        return self._post('ClaimWorkflowInstance', {'InstanceNo': int(instance_no), 'TokenNo': int(token_no)})
 
-    def disclaim_workflow_instance(self, workflow_instance_token: str, task_no: Optional[int] = None) -> Dict[str, Any]:
-        payload = {'WorkflowInstanceToken': workflow_instance_token}
-        if task_no is not None:
-            payload['TaskNo'] = task_no
-        return self._post('DisclaimWorkflowInstance', payload)
+    def disclaim_workflow_instance(self, instance_no: int, token_no: int) -> Dict[str, Any]:
+        return self._post('DisclaimWorkflowInstance', {'InstanceNo': int(instance_no), 'TokenNo': int(token_no)})
 
-    def delegate_workflow_instance(self, workflow_instance_token: str, user_id: int, task_no: Optional[int] = None) -> Dict[str, Any]:
-        payload = {'WorkflowInstanceToken': workflow_instance_token, 'UserId': user_id}
-        if task_no is not None:
-            payload['TaskNo'] = task_no
-        return self._post('DelegateWorkflowInstance', payload)
+    def delegate_workflow_instance(self, instance_no: int, token_no: int, user_name: str, domain_name: str = '') -> Dict[str, Any]:
+        """Delegate to a user. The server requires DomainName ('' for internal users) and a claimed instance."""
+        return self._post('DelegateWorkflowInstance', {
+            'InstanceNo': int(instance_no),
+            'TokenNo': int(token_no),
+            'UserName': user_name,
+            'DomainName': domain_name or '',
+        })
+
+    def finish_current_workflow_task(
+        self,
+        instance_no: int,
+        token_no: int,
+        next_task_no: int,
+        text_information: Optional[str] = None,
+        next_user_nos: Optional[List[int]] = None,
+    ) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {'InstanceNo': int(instance_no), 'TokenNo': int(token_no), 'NextTaskNo': int(next_task_no)}
+        if text_information:
+            payload['TextInformation'] = text_information
+        if next_user_nos:
+            payload['NextUsers'] = {'NextUserNoList': [int(n) for n in next_user_nos]}
+        return self._post('FinishCurrentWorkflowTask', payload)
+
+    def link_document_to_workflow(self, doc_no: int, instance_no: int, token_no: int, auto_claim: bool = True) -> Dict[str, Any]:
+        return self._post('LinkDocAndWFInstance', {
+            'DocNo': int(doc_no),
+            'WorkflowInstanceNo': int(instance_no),
+            'TokenNo': int(token_no),
+            'AutoClaimWorkflowInstance': bool(auto_claim),
+        })
 
     def get_case_definition(self, case_definition_no: int) -> Dict[str, Any]:
         return self._post('GetCaseDefinition', {
@@ -949,7 +969,16 @@ class ThereforeClient:
                 result_payload['ReleaseError'] = release_error
         return result_payload
 
-    def execute_full_text_query(self, search: str, categories: Optional[List[int]] = None, max_rows: int = 100, include_index_data: bool = False, case_no: int = 0) -> Dict[str, Any]:
+    def execute_full_text_query(
+        self,
+        search: str,
+        categories: Optional[List[int]] = None,
+        max_rows: int = 100,
+        include_index_data: bool = False,
+        case_no: int = 0,
+        search_scope: int = 2,
+    ) -> Dict[str, Any]:
+        """search_scope: 0 = index data only, 1 = document content, 2 = both (0 misses words only in the file text)."""
         payload = {
             'FullTextQuery': {
                 'Search': search,
@@ -962,7 +991,7 @@ class ThereforeClient:
                 'FuzzySearchLevel': 0,
                 'LCID': 0,
                 'MaxContentChars': 0,
-                'SearchScope': 0,
+                'SearchScope': int(search_scope),
                 'SortOrder': 0,
                 'UseThesaurus': False,
             },

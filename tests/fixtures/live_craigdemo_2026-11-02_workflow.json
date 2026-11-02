@@ -1,0 +1,144 @@
+{
+  "tenant": "craigdemo",
+  "verified_on": "2026-11-02",
+  "service_version": "35.0.3.18",
+  "auth": "basic+TenantName, JWT bearer",
+  "mode": "read-only contract probes; app-driven writes listed under writes",
+  "required_members_from_empty_body": {
+    "ExecuteWorkflowQueryForAll": [
+      "WorkflowFlags"
+    ],
+    "GetWorkflowInstance": [
+      "InstanceNo",
+      "TokenNo"
+    ],
+    "ClaimWorkflowInstance": [
+      "InstanceNo",
+      "TokenNo"
+    ],
+    "DisclaimWorkflowInstance": [
+      "InstanceNo",
+      "TokenNo"
+    ],
+    "DelegateWorkflowInstance": [
+      "DomainName",
+      "InstanceNo",
+      "TokenNo",
+      "UserName"
+    ],
+    "LinkDocAndWFInstance": [
+      "DocNo",
+      "TokenNo",
+      "WorkflowInstanceNo"
+    ],
+    "FinishCurrentWorkflowTask": [
+      "InstanceNo",
+      "NextTaskNo",
+      "TokenNo"
+    ],
+    "GetObjectsList": [
+      "LoadItemsList"
+    ],
+    "RemoveNotificationSubscriptions": [
+      "RemoveGuids"
+    ],
+    "CreateSharedLink": [
+      "DocNo",
+      "PermissionType",
+      "ShareType"
+    ],
+    "GetThumbnail": [
+      "DocNo"
+    ],
+    "SaveDocumentIndexDataQuick": [
+      "DocNo",
+      "IndexData"
+    ],
+    "LoadComments": [
+      "MaxCount",
+      "ObjNo",
+      "ObjType"
+    ],
+    "GenerateWebRefererenceNo": [
+      "OriginValue"
+    ],
+    "GetConvertedDocStreamsRaw": [
+      "ConversionOptions",
+      "DocNo",
+      "StreamNos"
+    ],
+    "ExecuteAsyncSingleQuery": [
+      "Query"
+    ],
+    "GetNextFullTextQueryRows": [
+      "QueryID"
+    ]
+  },
+  "other_empty_body_results": {
+    "RevokeSharedLink": "LinkId must be set",
+    "CreateWorkflowUserInboxSubscription": "Notification mechanism was not set",
+    "GetJWTToken": "ok",
+    "GetClientDiscoveryInfo": "ok (no SSO providers)",
+    "GetOutOfOfficeInfoForUser": "ok"
+  },
+  "workflow_flags": {
+    "0": "DefaultInstances (inbox; group tasks included)",
+    "1": "RunningInstances (includes process-owner-only instances)",
+    "2": "Finished",
+    "3": "All",
+    "4": "Error",
+    "8": "Overdue"
+  },
+  "inbox_row_index_values": [
+    "instance no",
+    "task name",
+    "assigned-to text",
+    "task due (UTC ISO or null)",
+    "process due"
+  ],
+  "delegate_errors": {
+    "missing_domain_name": "required data member 'DomainName' was not found",
+    "unclaimed": "The workflow instance must be claimed before you can perform this action."
+  },
+  "jwt": {
+    "basic_hours": 24,
+    "bearer_renewal_hours": 12,
+    "second_renewal": "returns the identical token"
+  },
+  "full_text": {
+    "search_scope": {
+      "0": "index data only",
+      "1": "document content",
+      "2": "both"
+    },
+    "query_fulltext_member": "ignored (all 34 category rows returned for real, nonsense and empty text)",
+    "top_level_fulltext": "filters"
+  },
+  "get_objects_list": {
+    "supported_types_seen": [
+      11,
+      19
+    ],
+    "unsupported_types": [
+      12,
+      20
+    ],
+    "one_unsupported_type_fails_call": true
+  },
+  "webhook_event_types": {
+    "1": "Assigned",
+    "2": "Delegated (to delegator)",
+    "3": "Processed",
+    "4": "Claimed",
+    "5": "Unclaimed",
+    "6": "Deleted",
+    "7": "Rerouted",
+    "8": "Unassigned"
+  },
+  "writes": {
+    "shared_link": "created and revoked on an existing demo document; revoke verified",
+    "out_of_office": "saved with unchanged state (off, no delegates); verified unchanged",
+    "comment": "one test comment added and edited on a demo workflow instance via the app; comments cannot be deleted through the API",
+    "delegation": "two demo instances delegated by the tenant owner through the app"
+  }
+}

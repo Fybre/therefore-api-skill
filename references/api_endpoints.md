@@ -793,6 +793,12 @@ requires `Search` (not `SearchText`), `Categories` (a plural array, not `Categor
 and `ContextMode`/`SearchScope`/`SortOrder` — omitting any of these causes a 500
 `"...cannot be deserialized because the required data members ... were not found"`.
 
+**`SearchScope`: 0 = index data only, 1 = document content, 2 = both** (verified Nov 2026). With 0,
+words that appear only in a document's text are never found — which looks like an indexing gap. Each hit
+has `HitCount`. To separate index-data matches from text hits, run scope 0 and scope 1 side by side.
+For a full-text filter inside one category query, put `FullText` at the top level of the
+`ExecuteSingleQuery`/`ExecuteAsyncSingleQuery` request — `Query.FullText` is silently ignored.
+
 ```json
 // Request:
 {
@@ -807,7 +813,7 @@ and `ContextMode`/`SearchScope`/`SortOrder` — omitting any of these causes a 5
     "FuzzySearchLevel": 0,
     "LCID": 0,
     "MaxContentChars": 0,
-    "SearchScope": 0,
+    "SearchScope": 2,
     "SortOrder": 0,
     "UseThesaurus": false
   },
@@ -1119,6 +1125,49 @@ Complete a workflow task using the task decision value exposed by the workflow.
 Use `ExecuteTaskInfoQuery`/task metadata to get `TaskNo` and the valid decision values before
 calling. The REST contract uses `TaskDecision`; `SelectedExitNo`, `UserDecision`, and
 `WorkflowInstanceToken` are not members of `CompleteTaskParams`.
+
+### Workflow instances (inbox, claim, delegate, finish)
+
+Verified on Therefore Online (Web API 35.0.3.18, Nov 2026). These operations address an instance
+by **`InstanceNo` + `TokenNo`** — there is no `WorkflowInstanceToken` member.
+
+```json
+// Inbox: WorkflowFlags 0 = DefaultInstances (own + group tasks). 1 = RunningInstances also
+// returns instances seen only as process owner (e.g. tasks delegated away). 2 Finished,
+// 3 All, 4 Error, 8 Overdue.
+{"WorkflowFlags": 0, "MaxRows": 500}                                  // ExecuteWorkflowQueryForAll
+{"InstanceNo": 8182, "TokenNo": 1}                                    // GetWorkflowInstance / ClaimWorkflowInstance / DisclaimWorkflowInstance
+{"InstanceNo": 8182, "TokenNo": 1, "UserName": "jane", "DomainName": ""}   // DelegateWorkflowInstance — claim first
+{"InstanceNo": 8182, "TokenNo": 1, "NextTaskNo": 5434, "TextInformation": "Approved"}  // FinishCurrentWorkflowTask
+{"DocNo": 27047, "WorkflowInstanceNo": 8182, "TokenNo": 1, "AutoClaimWorkflowInstance": true}  // LinkDocAndWFInstance
+{"ObjNo": 8182, "ObjType": 21, "WFInstanceNo": 8182, "MaxCount": 0}  // LoadComments on an instance
+```
+
+- Inbox rows: `IndexValues` 0 instance no, 1 task name, 2 "assigned to" text, 3 task due (UTC ISO or null),
+  4 process due, then category fields. No claim state in the rows — use `GetWorkflowInstance`
+  (`Claimed`, `AssignedToUsers`, `OriginallyAssignedToUsers`, `DelegationDisabled`, `TaskDueDateISO8601`).
+- `DelegateWorkflowInstance` fails without `DomainName` (deserialization error; send `""` for internal
+  users) and on an unclaimed instance ("must be claimed before you can perform this action").
+- `NextTaskNo` comes from `GetWorkflowInstance` → `Transitions[].NextTask`.
+- `FinishWorkflowTaskQuick` is in the 2026 reference but was not deployed on Therefore Online yet.
+
+### GetObjectsList
+
+```json
+{"LoadItemsList": [{"Type": 19, "Flags": 1, "RoleAccessMask": 0}, {"Type": 11, "Flags": 1, "RoleAccessMask": 0}]}
+```
+→ `AllItemsList[].ItemList[]` (`ID`, `Name`, `Data`). Type 19 = workflow processes, 11 = users and
+groups (`Data` 1 user, 2 group). Types 12 and 20 are unsupported and fail the **whole** call.
+
+### Workflow inbox webhooks
+
+`CreateWorkflowUserInboxSubscription {"Webhook": {"WebhookUrl", "ExpiryOption": 1, "AddTextMessage": true}}`
+→ `{"Id"}`. `ExpiryOption` 0 (default) = removed unless refreshed within 14 days; 1 = removed only after
+failures (unreachable or HTTP error status) spanning more than 14 days. `NotificationType` is always 1.
+Payload `data`: `eventType`, `wfInstance`, `wfToken`, `wfProcess`, `wfTask`, `wfTaskGuid`, `wfVersion`.
+`eventType`: 1 Assigned, 2 Delegated (sent to the delegator), 3 Processed, 4 Claimed, 5 Unclaimed,
+6 Deleted (to the deleting user; others get 8), 7 Rerouted, 8 Unassigned. Without a configured
+notification mechanism the call fails with "Notification mechanism was not set".
 
 ---
 
